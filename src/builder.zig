@@ -64,13 +64,51 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
         return builder.nil();
     }
 
+    const len = statements.len;
     var parts: std.ArrayList(*const Doc) = .empty;
     const parts_alloc = builder.arena.allocator();
 
+    // Calculate which statement needs a semicolon before an implicit return
+    // Matches Rust: add semicolon to last non-comment statement before implicit return
+    const semicolon_index: ?usize = blk: {
+        if (len < 2) break :blk null;
+
+        // Check if last statement is an implicit return (expression that's not let/let mut)
+        const last_stmt = &statements[len - 1];
+        const has_implicit_return = last_stmt.kind == .expression and
+            last_stmt.kind.expression.kind != .let and
+            last_stmt.kind.expression.kind != .mutable_let;
+
+        if (!has_implicit_return) break :blk null;
+
+        // Find last non-comment statement before the implicit return
+        var idx: usize = len - 1;
+        while (idx > 0) {
+            idx -= 1;
+            if (statements[idx].kind != .comment) {
+                break :blk idx;
+            }
+        }
+        break :blk null;
+    };
+
     for (statements, 0..) |*stmt, i| {
         if (i > 0) {
-            // Preserve user blank lines from source only
-            if (stmt.preceded_by_blank_line) {
+            // Preserve user blank lines from source, or add for implicit returns
+            const needs_blank = stmt.preceded_by_blank_line or blk: {
+                // Add blank line before implicit return expression
+                if (stmt.kind == .expression and i == len - 1 and len > 1) {
+                    const expr = stmt.kind.expression;
+                    break :blk expr.kind != .let and expr.kind != .mutable_let;
+                }
+                // Add blank line before multiline return expressions
+                if (stmt.kind == .@"return" and len > 1) {
+                    break :blk isMultilineExpression(stmt.kind.@"return");
+                }
+                break :blk false;
+            };
+
+            if (needs_blank) {
                 try parts.append(parts_alloc, try builder.blankLine());
                 try parts.append(parts_alloc, try builder.hardLine());
             } else {
@@ -87,6 +125,11 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
             try parts.append(parts_alloc, try buildStatement(builder, stmt, false));
         }
 
+        // Add semicolon before implicit return
+        if (semicolon_index == i) {
+            try parts.append(parts_alloc, try builder.text(";"));
+        }
+
         // Emit trailing comment if present
         if (stmt.trailing_comment) |comment| {
             const comment_parts = try builder.arena.allocator().alloc(*const Doc, 2);
@@ -101,8 +144,10 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
 
 /// Build an expression that's in implicit return position (last expression in block).
 /// This forces multi-pipe chains to break onto separate lines for readability.
+/// Note: Only PIPE chains (|>) are force-broken. Compositions (>>) use normal soft-line formatting.
 fn buildImplicitReturnExpr(builder: *DocBuilder, expr: *const Expression) BuildError!*const Doc {
     // Check if this is a pipe chain that should be force-broken
+    // Note: Rust only force-breaks pipes, not compositions
     if (expr.kind == .function_thread) {
         const thread = expr.kind.function_thread;
         if (thread.functions.len > 1) {
@@ -111,15 +156,8 @@ fn buildImplicitReturnExpr(builder: *DocBuilder, expr: *const Expression) BuildE
         }
     }
 
-    // Check if this is a composition chain that should be force-broken
-    if (expr.kind == .function_composition) {
-        const functions = expr.kind.function_composition;
-        if (functions.len > 2) {
-            // Multi-compose chain in implicit return: force break
-            // First element is the initial, rest are the functions
-            return buildCompositionForceBreak(builder, functions, ">>");
-        }
-    }
+    // Compositions (>>) use normal formatting - they're grouped with soft lines
+    // and the printer decides whether to break based on line width
 
     // Default: build normally
     return buildExpression(builder, expr);
@@ -631,8 +669,10 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
         }
     }
 
-    // Width-based formatting: use soft lines and let the printer decide
-    // based on the 100-character line width limit
+    // Force break when there are multiple functions in the chain
+    // Matches Rust: multi-pipe chains always break onto separate lines
+    const force_break = functions.len > 1;
+
     var chain: std.ArrayList(*const Doc) = .empty;
     const chain_alloc = builder.arena.allocator();
     for (functions, 0..) |f, i| {
@@ -645,7 +685,8 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
             try buildExpression(builder, f);
 
         const op_parts = try builder.arena.allocator().alloc(*const Doc, 3);
-        op_parts[0] = try builder.line();
+        // Use HardLine when force_break, otherwise soft line
+        op_parts[0] = if (force_break) try builder.hardLine() else try builder.line();
         op_parts[1] = try builder.text(op);
         op_parts[2] = try builder.text(" ");
 
@@ -661,7 +702,13 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
     const p = try builder.arena.allocator().alloc(*const Doc, 2);
     p[0] = try buildExpression(builder, initial);
     p[1] = nested;
-    return builder.group(try builder.concat(p));
+
+    // Don't wrap in group when force_break - always break
+    if (force_break) {
+        return builder.concat(p);
+    } else {
+        return builder.group(try builder.concat(p));
+    }
 }
 
 /// Build a pipe/compose chain with forced line breaks (used for implicit returns).
@@ -988,7 +1035,14 @@ fn buildLambda(builder: *DocBuilder, parameters: []*Expression, body: *const Sta
             }
             break :blk try buildBlockBody(builder, stmts);
         },
-        .expression => |expr| try buildExpression(builder, expr),
+        .expression => |expr| blk: {
+            // Same logic as single-element block: wrap in braces if set/dict/pipes
+            // This matches the Rust parser which always wraps lambda bodies in Block
+            if (expr.kind == .set or expr.kind == .dictionary or hasPipeOrComposition(expr)) {
+                break :blk try buildBlockBodyForExpr(builder, expr);
+            }
+            break :blk try buildExpression(builder, expr);
+        },
         else => try buildStatement(builder, body, false),
     };
 
@@ -1037,6 +1091,20 @@ fn buildBlockBody(builder: *DocBuilder, stmts: []const Statement) BuildError!*co
     return builder.concat(p);
 }
 
+/// Build a block body wrapping a single expression (for lambda bodies with pipes)
+fn buildBlockBodyForExpr(builder: *DocBuilder, expr: *const Expression) BuildError!*const Doc {
+    const inner_parts = try builder.arena.allocator().alloc(*const Doc, 2);
+    inner_parts[0] = try builder.hardLine();
+    inner_parts[1] = try buildExpression(builder, expr);
+
+    const p = try builder.arena.allocator().alloc(*const Doc, 4);
+    p[0] = try builder.text("{");
+    p[1] = try builder.nest(INDENT_SIZE, try builder.concat(inner_parts));
+    p[2] = try builder.hardLine();
+    p[3] = try builder.text("}");
+    return builder.concat(p);
+}
+
 fn buildString(builder: *DocBuilder, value: []const u8) BuildError!*const Doc {
     const escaped = try escapeString(builder.arena.allocator(), value);
     var buf: [2048]u8 = undefined;
@@ -1052,16 +1120,30 @@ fn buildString(builder: *DocBuilder, value: []const u8) BuildError!*const Doc {
 }
 
 fn escapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
+    // Count newlines to determine if this is multiline content
+    // Matches Rust: preserve literal newlines only if >3 newlines OR >50 chars
+    var newline_count: usize = 0;
+    for (s) |c| {
+        if (c == '\n') newline_count += 1;
+    }
+    const is_multiline_content = newline_count > 3 or s.len > 50;
+
     var result: std.ArrayList(u8) = .empty;
     for (s) |c| {
         switch (c) {
             '\\' => try result.appendSlice(allocator, "\\\\"),
             '"' => try result.appendSlice(allocator, "\\\""),
+            '\n' => {
+                if (is_multiline_content) {
+                    try result.append(allocator, c); // Preserve literal for long strings
+                } else {
+                    try result.appendSlice(allocator, "\\n"); // Escape for short strings
+                }
+            },
             '\t' => try result.appendSlice(allocator, "\\t"),
             '\r' => try result.appendSlice(allocator, "\\r"),
             0x08 => try result.appendSlice(allocator, "\\b"), // Backspace
             0x0C => try result.appendSlice(allocator, "\\f"), // Form feed
-            // Always preserve literal newlines
             else => try result.append(allocator, c),
         }
     }

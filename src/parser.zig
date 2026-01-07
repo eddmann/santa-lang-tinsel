@@ -645,7 +645,32 @@ pub const Parser = struct {
     }
 
     fn parseCallExpression(self: *Parser, function: *Expression) ParseError!*Expression {
-        const args = try self.parseExpressionList(.rparen);
+        var args_list: std.ArrayList(*Expression) = .empty;
+        errdefer {
+            for (args_list.items) |a| {
+                a.deinit(self.allocator);
+                self.allocator.destroy(a);
+            }
+            if (args_list.capacity > 0) args_list.deinit(self.allocator);
+        }
+
+        // Parse regular arguments
+        const parsed_args = try self.parseExpressionList(.rparen);
+        for (parsed_args) |arg| {
+            try args_list.append(self.allocator, arg);
+        }
+
+        // Check for trailing lambda: fold(0) |x| ... -> fold(0, |x| ...)
+        // This matches Rust's behavior of adding trailing lambdas to the same call
+        // Note: Only check for single |, not || (which is the logical OR operator)
+        if (self.currentIs(.pipe)) {
+            const lambda_val = try self.parseLambda();
+            const lambda = try self.allocator.create(Expression);
+            lambda.* = lambda_val;
+            try args_list.append(self.allocator, lambda);
+        }
+
+        const args = try args_list.toOwnedSlice(self.allocator);
 
         const expr = try self.allocator.create(Expression);
         expr.* = .{
