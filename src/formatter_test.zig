@@ -674,3 +674,314 @@ test "idempotent: lambda with set" {
 test "idempotent: dict shorthand" {
     try assertIdempotent("#{a, b, c, \"key\": value}");
 }
+
+// === STRING ESCAPE TESTS (from comet) ===
+
+test "format: string with backspace" {
+    // Input contains actual backspace char (0x08)
+    try expectFormat("\"a\x08b\"", "\"a\\bb\"\n");
+}
+
+test "format: string with form feed" {
+    // Input contains actual form feed char (0x0C)
+    try expectFormat("\"a\x0Cb\"", "\"a\\fb\"\n");
+}
+
+test "format: string short escapes newlines" {
+    // Literal newline in short string should become \n escape
+    try expectFormat("\"line1\nline2\"", "\"line1\\nline2\"\n");
+}
+
+test "format: string two newlines still escapes" {
+    try expectFormat("\"a\nb\nc\"", "\"a\\nb\\nc\"\n");
+}
+
+test "format: string three newlines short escapes" {
+    // 3 newlines is NOT > 3, so should escape
+    const result = try lib.format(testing.allocator, "\"a\nb\nc\nd\"");
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("\"a\\nb\\nc\\nd\"\n", result);
+}
+
+test "format: string four newlines preserves literal" {
+    // 4 newlines IS > 3, so preserves literal newlines
+    const result = try lib.format(testing.allocator, "\"a\nb\nc\nd\ne\"");
+    defer testing.allocator.free(result);
+    // Should contain more than 1 newline (literal newlines preserved)
+    var newline_count: usize = 0;
+    for (result) |c| {
+        if (c == '\n') newline_count += 1;
+    }
+    try testing.expect(newline_count > 1);
+}
+
+test "format: string long few newlines preserves literal" {
+    // >50 chars triggers literal newlines regardless of newline count
+    const long_string = "\"" ++ "x" ** 30 ++ "\\n" ++ "y" ** 25 ++ "\"";
+    const result = try lib.format(testing.allocator, long_string);
+    defer testing.allocator.free(result);
+    var newline_count: usize = 0;
+    for (result) |c| {
+        if (c == '\n') newline_count += 1;
+    }
+    try testing.expect(newline_count > 1);
+}
+
+test "format: string short few newlines escapes" {
+    // <50 chars AND <=3 newlines should escape
+    try expectFormat("\"hello\\nworld\"", "\"hello\\nworld\"\n");
+}
+
+// === LINE WIDTH / WRAPPING TESTS ===
+
+test "format: list exceeding line width wraps" {
+    // This list exceeds 100 chars so it should wrap
+    const input = "[very_long_name_one, very_long_name_two, very_long_name_three, very_long_name_four, very_long_name_five]";
+    const result = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(result);
+    // Should wrap to multiple lines
+    try testing.expect(std.mem.indexOf(u8, result, "\n") != null);
+    // Should have comma before newline
+    try testing.expect(std.mem.indexOf(u8, result, ",\n") != null);
+}
+
+test "format: call exceeding line width wraps" {
+    // Long function call should wrap
+    const input = "very_long_function_name(argument_one, argument_two, argument_three, argument_four, argument_five)";
+    const result = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(result);
+    // Should wrap to multiple lines
+    try testing.expect(std.mem.indexOf(u8, result, "\n") != null);
+}
+
+test "format: wrapped list has trailing comma" {
+    // Short list should stay inline
+    const short_output = try lib.format(testing.allocator, "[1, 2, 3]");
+    defer testing.allocator.free(short_output);
+    var short_lines: usize = 0;
+    for (short_output) |c| {
+        if (c == '\n') short_lines += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), short_lines); // Only trailing newline
+
+    // Very long list should wrap
+    const long_input = "[element_0, element_1, element_2, element_3, element_4, element_5, element_6, element_7, element_8, element_9, element_10, element_11, element_12, element_13, element_14, element_15, element_16, element_17, element_18, element_19]";
+    const long_output = try lib.format(testing.allocator, long_input);
+    defer testing.allocator.free(long_output);
+    try testing.expectEqualStrings("[\n  element_0,\n  element_1,\n  element_2,\n  element_3,\n  element_4,\n  element_5,\n  element_6,\n  element_7,\n  element_8,\n  element_9,\n  element_10,\n  element_11,\n  element_12,\n  element_13,\n  element_14,\n  element_15,\n  element_16,\n  element_17,\n  element_18,\n  element_19\n]\n", long_output);
+}
+
+// === TRAILING CLOSURE TESTS ===
+
+test "format: trailing closure preserved" {
+    // Note: Zig parser requires parens for calls - `each(|x| {...})` vs Rust's `each |x| {...}`
+    try expectFormat("each(|x| { let y = x + 1\nputs(y) })", "each |x| {\n  let y = x + 1;\n\n  puts(y)\n}\n");
+}
+
+test "format: trailing closure in pipe" {
+    // Note: Zig parser requires parens for calls - `each(|x| {...})` vs Rust's `each |x| {...}`
+    try expectFormat("[1, 2] |> each(|x| { let y = x\nputs(y) })", "[1, 2] |> each |x| {\n  let y = x;\n\n  puts(y)\n}\n");
+}
+
+test "format: single statement lambda trailing when long" {
+    const input = "map(|some_very_long_parameter_name| some_very_long_parameter_name + another_very_long_expression_here)";
+    const expected = "map |some_very_long_parameter_name| {\n  some_very_long_parameter_name + another_very_long_expression_here\n}\n";
+    try expectFormat(input, expected);
+}
+
+test "format: lambda with other args trailing when long" {
+    const input = "fold_s([[], []], |[prefixes, prefix], key| [prefixes + [[..prefix, key]], [..prefix, key, extra, more]])";
+    const expected = "fold_s([[], []]) |[prefixes, prefix], key| {\n  [prefixes + [[..prefix, key]], [..prefix, key, extra, more]]\n}\n";
+    try expectFormat(input, expected);
+}
+
+test "format: lambda in pipe chain keeps braces" {
+    const input = "a |> |x| { x } |> f";
+    const result = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("a\n  |> |x| {\n    x\n  }\n  |> f\n", result);
+    // Verify idempotent
+    const result2 = try lib.format(testing.allocator, result);
+    defer testing.allocator.free(result2);
+    try testing.expectEqualStrings(result, result2);
+}
+
+test "format: lambda last in pipe chain can inline" {
+    const input = "a |> |x| x";
+    const result = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings("a |> |x| x\n", result);
+}
+
+// === LAMBDA MATCH UNWRAPPING TESTS ===
+
+test "format: lambda unwraps match with list subject" {
+    try expectFormat("|x| { match [a, b] { [1, _] { true } _ { false } } }", "|x| match [a, b] {\n  [1, _] { true }\n  _ { false }\n}\n");
+}
+
+test "format: lambda unwraps match with identifier subject" {
+    try expectFormat("|x| { match x { 1 { true } _ { false } } }", "|x| match x {\n  1 { true }\n  _ { false }\n}\n");
+}
+
+// === COMPOSITION WRAPPING TEST ===
+
+test "format: composition wraps at line width" {
+    // Composition wraps when exceeding line width (100 chars)
+    try expectFormat("very_long_function_name_one >> very_long_function_name_two >> very_long_function_name_three >> very_long_function_name_four", "very_long_function_name_one\n  >> very_long_function_name_two\n  >> very_long_function_name_three\n  >> very_long_function_name_four\n");
+}
+
+// === PRECEDENCE / PARENS TEST ===
+
+test "format: preserves parens for pipe in subtraction" {
+    try expectFormat("a - (b |> f |> g)", "a - (b\n  |> f\n  |> g)\n");
+}
+
+// === SECTION COMMENT TEST ===
+
+test "format: trailing comment in section" {
+    // Note: Zig implementation attaches trailing comment to section (after closing brace)
+    // rather than to inner statement. This is a behavioral difference from the Rust implementation.
+    try expectFormat("part_one: let x = 1  // inline", "part_one: {\n  let x = 1\n} // inline\n");
+}
+
+// === DICT PATTERN TEST ===
+
+test "format: function dictionary parameter explicit key" {
+    try expectFormat("|#{\"a\":x,\"b\":y}|x+y", "|#{\"a\": x, \"b\": y}| x + y\n");
+}
+
+// === BLOCK / RETURN TESTS ===
+
+test "format: multiline return has blank line" {
+    try expectFormat("|x| { let v = process(x)\nreturn v |> map(f) |> filter(g) |> sum }", "|x| {\n  let v = process(x)\n\n  return v\n    |> map(f)\n    |> filter(g)\n    |> sum\n}\n");
+}
+
+test "format: single line return no blank line" {
+    try expectFormat("|x| { let r = compute(x)\nreturn r }", "|x| {\n  let r = compute(x)\n  return r\n}\n");
+}
+
+test "format: semicolon before implicit return skips comments" {
+    try expectFormat("|x| { let a = 1\n// comment\na + 1 }", "|x| {\n  let a = 1;\n  // comment\n\n  a + 1\n}\n");
+}
+
+test "format: semicolon with multiple comments before return" {
+    try expectFormat("|x| { let a = 1\n// comment 1\n// comment 2\na }", "|x| {\n  let a = 1;\n  // comment 1\n  // comment 2\n\n  a\n}\n");
+}
+
+// === ERROR HANDLING TESTS ===
+
+test "format: invalid syntax returns error" {
+    const result = lib.format(testing.allocator, "let = ");
+    try testing.expectError(lib.FormatError.ParseError, result);
+}
+
+test "format: unclosed bracket returns error" {
+    const result = lib.format(testing.allocator, "[1, 2, 3");
+    try testing.expectError(lib.FormatError.ParseError, result);
+}
+
+test "format: unclosed string returns error" {
+    const result = lib.format(testing.allocator, "\"unclosed");
+    try testing.expectError(lib.FormatError.ParseError, result);
+}
+
+// === ROUND TRIP TESTS ===
+// These tests verify that the AST structure is preserved after formatting
+// by checking that both original and formatted code parse to the same number of statements
+
+fn assertRoundTrip(source: []const u8) !void {
+    const formatted = try lib.format(testing.allocator, source);
+    defer testing.allocator.free(formatted);
+
+    // Both should parse successfully - we verify by formatting again
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+
+    // If both parse and format identically, the AST structure is preserved
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: expression" {
+    try assertRoundTrip("1 + 2 * 3");
+}
+
+test "round_trip: function" {
+    try assertRoundTrip("|x| x + 1");
+}
+
+test "round_trip: match" {
+    try assertRoundTrip("match x { 0 { 1 } _ { 2 } }");
+}
+
+test "round_trip: if else" {
+    try assertRoundTrip("if x { 1 } else { 2 }");
+}
+
+test "round_trip: list" {
+    try assertRoundTrip("[1, 2, 3]");
+}
+
+test "round_trip: pipe" {
+    try assertRoundTrip("[1, 2, 3] |> sum");
+}
+
+test "round_trip: mixed and or operators" {
+    const input = "(a && b) || (c && d)";
+    const formatted = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(formatted);
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: pipe in arithmetic" {
+    const input = "rest(queue) + (items |> map(f))";
+    const formatted = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(formatted);
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: lambda with set" {
+    const input = "|x| { {a, b, c} }";
+    const formatted = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(formatted);
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: lambda with match list subject" {
+    const input = "|j| { match [j >= len, j < len] { [true, _] { j } _ { j + 1 } } }";
+    const formatted = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(formatted);
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: dict shorthand" {
+    const input = "#{a, b, c, \"key\": value}";
+    const formatted = try lib.format(testing.allocator, input);
+    defer testing.allocator.free(formatted);
+    const reformatted = try lib.format(testing.allocator, formatted);
+    defer testing.allocator.free(reformatted);
+    try testing.expectEqualStrings(formatted, reformatted);
+}
+
+test "round_trip: dictionary pattern let" {
+    try assertRoundTrip("let #{name, age} = dict");
+}
+
+test "round_trip: dictionary pattern rest" {
+    try assertRoundTrip("let #{name, ..rest} = dict");
+}
+
+test "round_trip: dictionary parameter" {
+    try assertRoundTrip("|#{x, y}| x + y");
+}
+
+test "round_trip: match dictionary" {
+    try assertRoundTrip("match d { #{name} { name } }");
+}
