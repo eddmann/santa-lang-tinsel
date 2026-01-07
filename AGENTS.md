@@ -34,7 +34,7 @@ make release            # Release build (optimized)
 make help               # Show available targets
 make fmt                # Format Zig source code
 make lint               # Run zig fmt --check
-make test               # Run all tests (340 tests)
+make test               # Run all tests
 make can-release        # Run before submitting PR (lint + test)
 make release            # Build optimized release binary
 make run ARGS="file.santa"  # Run formatter on file
@@ -68,13 +68,13 @@ Pass `VERSION=x.y.z` to embed version string (used by CI).
 | `token.zig` | Token definitions and source locations |
 | `lexer.zig` | Tokenization with lookahead buffering |
 | `parser.zig` | Pratt parser for AST construction |
-| `ast.zig` | AST node definitions (25+ expression types) |
+| `ast.zig` | AST node definitions |
 | `doc.zig` | Wadler-Lindig document IR primitives |
 | `builder.zig` | AST to document IR conversion |
 | `printer.zig` | Document IR to formatted string with line-breaking |
 | `lib.zig` | Public library API (`format`, `isFormatted`) |
 | `main.zig` | CLI entry point with file/directory handling |
-| `formatter_test.zig` | Comprehensive test suite (260+ tests) |
+| `formatter_test.zig` | Test suite |
 
 ## Tests & CI
 
@@ -82,7 +82,6 @@ Pass `VERSION=x.y.z` to embed version string (used by CI).
 - **Build** (`build-cli.yml`): Multi-platform CLI builds (linux/macos, amd64/arm64)
 - **Build** (`build-wasm.yml`): WebAssembly build (wasm32-wasi)
 - Auto-updates `draft-release` branch after tests pass on main
-- 340 tests covering lexer, parser, doc, printer, and formatting
 
 ## PR & Workflow Rules
 
