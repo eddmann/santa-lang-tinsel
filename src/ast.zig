@@ -220,6 +220,7 @@ pub const ExpressionKind = union(enum) {
     // Operators
     prefix: struct { operator: Prefix, right: *Expression },
     infix: struct { operator: Infix, left: *Expression, right: *Expression },
+    operator_ref: []const u8, // operator used as first-class value, e.g., sort(<)
 
     // Control flow
     @"if": struct {
@@ -245,7 +246,7 @@ pub const ExpressionKind = union(enum) {
     pub fn deinit(self: *ExpressionKind, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .integer, .decimal, .string => |s| allocator.free(s),
-            .identifier, .rest_identifier => |s| allocator.free(s),
+            .identifier, .rest_identifier, .operator_ref => |s| allocator.free(s),
             .boolean, .nil, .placeholder => {},
 
             .let => |*binding| {

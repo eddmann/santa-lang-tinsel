@@ -46,7 +46,7 @@ fn tokenPrecedence(kind: TokenKind) Precedence {
         .pipe_greater, .greater_greater, .dot_dot, .dot_dot_equal => .composition,
         .plus, .minus => .sum,
         .asterisk, .slash, .modulo, .backtick => .product,
-        .lparen => .call,
+        .lparen, .pipe => .call, // .pipe for trailing lambda syntax: `map |x| x + 1`
         .lbracket => .index,
         else => .lowest,
     };
@@ -315,6 +315,10 @@ pub const Parser = struct {
                 .lbracket => {
                     left = try self.parseIndexExpression(left);
                 },
+                .pipe => {
+                    // Trailing lambda syntax: `map |x| x + 1` is equivalent to `map(|x| x + 1)`
+                    left = try self.parseTrailingLambdaCall(left);
+                },
                 else => break,
             }
         }
@@ -435,6 +439,40 @@ pub const Parser = struct {
                 self.nextToken();
                 break :blk .{
                     .kind = .{ .rest_identifier = name },
+                    .source = .{ .start = start, .end = self.current_token.start },
+                };
+            },
+            // Operator references - operators used as first-class values, e.g., sort(<)
+            .less_than,
+            .less_equal,
+            .greater_than,
+            .greater_equal,
+            .plus,
+            .asterisk,
+            .slash,
+            .modulo,
+            .equal,
+            .not_equal,
+            .amp_amp,
+            => blk: {
+                const op_symbol = switch (self.current_token.kind) {
+                    .less_than => "<",
+                    .less_equal => "<=",
+                    .greater_than => ">",
+                    .greater_equal => ">=",
+                    .plus => "+",
+                    .asterisk => "*",
+                    .slash => "/",
+                    .modulo => "%",
+                    .equal => "==",
+                    .not_equal => "!=",
+                    .amp_amp => "&&",
+                    else => unreachable,
+                };
+                const symbol = try self.allocator.dupe(u8, op_symbol);
+                self.nextToken();
+                break :blk .{
+                    .kind = .{ .operator_ref = symbol },
                     .source = .{ .start = start, .end = self.current_token.start },
                 };
             },
@@ -618,6 +656,28 @@ pub const Parser = struct {
         return expr;
     }
 
+    /// Parse trailing lambda call syntax: `map |x| x + 1` -> `map(|x| x + 1)`
+    fn parseTrailingLambdaCall(self: *Parser, function: *Expression) ParseError!*Expression {
+        // Current token is | (start of lambda)
+        const lambda_val = try self.parseLambda();
+
+        // Allocate the lambda on the heap
+        const lambda = try self.allocator.create(Expression);
+        lambda.* = lambda_val;
+
+        // Create single-element args array with the lambda
+        const args = try self.allocator.alloc(*Expression, 1);
+        args[0] = lambda;
+
+        const expr = try self.allocator.create(Expression);
+        expr.* = .{
+            .kind = .{ .call = .{ .function = function, .arguments = args } },
+            .source = .{ .start = function.source.start, .end = lambda.source.end },
+        };
+
+        return expr;
+    }
+
     fn parseIndexExpression(self: *Parser, left: *Expression) ParseError!*Expression {
         self.nextToken(); // move past [
         const index_expr = try self.parseExpression(.lowest);
@@ -748,6 +808,12 @@ pub const Parser = struct {
                 return ParseError.UnexpectedToken;
             }
             self.nextToken(); // consume comma
+
+            // Allow trailing comma
+            if (self.currentIs(.rbrace)) {
+                self.nextToken();
+                break;
+            }
         }
 
         return .{
@@ -1309,6 +1375,13 @@ pub const Parser = struct {
                 self.nextToken();
                 break :blk .{
                     .kind = .{ .identifier = name },
+                    .source = .{ .start = start, .end = self.current_token.start },
+                };
+            },
+            .underscore => blk: {
+                self.nextToken();
+                break :blk .{
+                    .kind = .placeholder,
                     .source = .{ .start = start, .end = self.current_token.start },
                 };
             },

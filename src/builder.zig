@@ -78,7 +78,14 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
             }
         }
 
-        try parts.append(parts_alloc, try buildStatement(builder, stmt, false));
+        // Check if this is the last statement and is an implicit return (expression statement)
+        const is_implicit_return = i == statements.len - 1 and stmt.kind == .expression;
+        if (is_implicit_return) {
+            // For implicit returns, force break pipe chains
+            try parts.append(parts_alloc, try buildImplicitReturnExpr(builder, stmt.kind.expression));
+        } else {
+            try parts.append(parts_alloc, try buildStatement(builder, stmt, false));
+        }
 
         // Emit trailing comment if present
         if (stmt.trailing_comment) |comment| {
@@ -90,6 +97,32 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
     }
 
     return builder.concat(try parts.toOwnedSlice(parts_alloc));
+}
+
+/// Build an expression that's in implicit return position (last expression in block).
+/// This forces multi-pipe chains to break onto separate lines for readability.
+fn buildImplicitReturnExpr(builder: *DocBuilder, expr: *const Expression) BuildError!*const Doc {
+    // Check if this is a pipe chain that should be force-broken
+    if (expr.kind == .function_thread) {
+        const thread = expr.kind.function_thread;
+        if (thread.functions.len > 1) {
+            // Multi-pipe chain in implicit return: force break
+            return buildChainForceBreak(builder, thread.initial, thread.functions, "|>");
+        }
+    }
+
+    // Check if this is a composition chain that should be force-broken
+    if (expr.kind == .function_composition) {
+        const functions = expr.kind.function_composition;
+        if (functions.len > 2) {
+            // Multi-compose chain in implicit return: force break
+            // First element is the initial, rest are the functions
+            return buildCompositionForceBreak(builder, functions, ">>");
+        }
+    }
+
+    // Default: build normally
+    return buildExpression(builder, expr);
 }
 
 fn buildStatement(builder: *DocBuilder, stmt: *const Statement, is_top_level: bool) BuildError!*const Doc {
@@ -181,6 +214,7 @@ fn buildExpression(builder: *DocBuilder, expr: *const Expression) BuildError!*co
 
         // Identifiers
         .identifier => |name| builder.text(name),
+        .operator_ref => |op| builder.text(op),
         .rest_identifier => |name| blk: {
             const p = try builder.arena.allocator().alloc(*const Doc, 2);
             p[0] = try builder.text("..");
@@ -597,8 +631,8 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
         }
     }
 
-    // Line-width based formatting: let the printer decide when to break
-    // based on the 100-character line width limit (like composition)
+    // Width-based formatting: use soft lines and let the printer decide
+    // based on the 100-character line width limit
     var chain: std.ArrayList(*const Doc) = .empty;
     const chain_alloc = builder.arena.allocator();
     for (functions, 0..) |f, i| {
@@ -628,6 +662,39 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
     p[0] = try buildExpression(builder, initial);
     p[1] = nested;
     return builder.group(try builder.concat(p));
+}
+
+/// Build a pipe/compose chain with forced line breaks (used for implicit returns).
+fn buildChainForceBreak(builder: *DocBuilder, initial: *const Expression, functions: []*Expression, op: []const u8) BuildError!*const Doc {
+    var chain: std.ArrayList(*const Doc) = .empty;
+    const chain_alloc = builder.arena.allocator();
+    for (functions, 0..) |f, i| {
+        const is_last = i == functions.len - 1;
+
+        // Lambdas that aren't the last element need block braces
+        const f_doc = if (f.kind == .function and !is_last)
+            try buildLambdaWithBlock(builder, f.kind.function.parameters, f.kind.function.body)
+        else
+            try buildExpression(builder, f);
+
+        const op_parts = try builder.arena.allocator().alloc(*const Doc, 3);
+        op_parts[0] = try builder.hardLine(); // Force break
+        op_parts[1] = try builder.text(op);
+        op_parts[2] = try builder.text(" ");
+
+        const parts = try builder.arena.allocator().alloc(*const Doc, 2);
+        parts[0] = try builder.concat(op_parts);
+        parts[1] = f_doc;
+        try chain.append(chain_alloc, try builder.concat(parts));
+    }
+
+    const chain_doc = try builder.concat(try chain.toOwnedSlice(chain_alloc));
+    const nested = try builder.nest(INDENT_SIZE, chain_doc);
+
+    const p = try builder.arena.allocator().alloc(*const Doc, 2);
+    p[0] = try buildExpression(builder, initial);
+    p[1] = nested;
+    return builder.concat(p); // No group wrapping - always break
 }
 
 fn buildCallForChain(builder: *DocBuilder, expr: *const Expression) !?*const Doc {
@@ -734,6 +801,42 @@ fn buildComposition(builder: *DocBuilder, functions: []*Expression) BuildError!*
     p[0] = docs[0];
     p[1] = nested;
     return builder.group(try builder.concat(p));
+}
+
+/// Build a composition chain with forced line breaks (used for implicit returns).
+fn buildCompositionForceBreak(builder: *DocBuilder, functions: []*Expression, op: []const u8) BuildError!*const Doc {
+    if (functions.len == 0) {
+        return builder.nil();
+    }
+
+    const docs = try builder.arena.allocator().alloc(*const Doc, functions.len);
+    for (functions, 0..) |f, i| {
+        docs[i] = try buildExpression(builder, f);
+    }
+
+    // Build rest with >> prefix and forced breaks
+    var rest: std.ArrayList(*const Doc) = .empty;
+    const rest_alloc = builder.arena.allocator();
+    for (docs[1..]) |d| {
+        const parts = try builder.arena.allocator().alloc(*const Doc, 3);
+        parts[0] = try builder.hardLine(); // Force break
+        parts[1] = try builder.text(op);
+        parts[2] = try builder.text(" ");
+        const prefix = try builder.concat(parts);
+
+        const line_parts = try builder.arena.allocator().alloc(*const Doc, 2);
+        line_parts[0] = prefix;
+        line_parts[1] = d;
+        try rest.append(rest_alloc, try builder.concat(line_parts));
+    }
+
+    const rest_doc = try builder.concat(try rest.toOwnedSlice(rest_alloc));
+    const nested = try builder.nest(INDENT_SIZE, rest_doc);
+
+    const p = try builder.arena.allocator().alloc(*const Doc, 2);
+    p[0] = docs[0];
+    p[1] = nested;
+    return builder.concat(p); // No group wrapping - always break
 }
 
 fn buildIf(builder: *DocBuilder, condition: *const Expression, consequence: *const Statement, alternative: ?*const Statement) BuildError!*const Doc {

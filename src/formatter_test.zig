@@ -470,11 +470,13 @@ test "format: lambda preserves braces for dict body" {
 }
 
 test "format: lambda preserves braces for pipe body" {
-    try expectFormat("|x| { [1, 2, 3] |> map(f) |> sum }", "|x| {\n  [1, 2, 3] |> map(f) |> sum\n}\n");
+    // Multi-pipe chain in implicit return position breaks across lines
+    try expectFormat("|x| { [1, 2, 3] |> map(f) |> sum }", "|x| {\n  [1, 2, 3]\n    |> map(f)\n    |> sum\n}\n");
 }
 
 test "format: lambda preserves braces for composition body" {
-    try expectFormat("|x| { f >> g >> h }", "|x| {\n  f >> g >> h\n}\n");
+    // Multi-composition in implicit return position breaks across lines
+    try expectFormat("|x| { f >> g >> h }", "|x| {\n  f\n    >> g\n    >> h\n}\n");
 }
 
 test "format: lambda unwraps simple expression" {
