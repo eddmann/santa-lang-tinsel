@@ -39,7 +39,7 @@ jobs:
         run: make build/${{ matrix.platform }} VERSION=${{ inputs.release-tag }}
       - name: Upload
         run: |
-          cp zig-out/bin/santa-fmt santa-fmt-${{ inputs.release-tag }}-${{ matrix.platform }}
-          gh release upload ${{ inputs.release-tag }} santa-fmt-${{ inputs.release-tag }}-${{ matrix.platform }} --clobber
+          cp zig-out/bin/santa-tinsel santa-tinsel-${{ inputs.release-tag }}-${{ matrix.platform }}
+          gh release upload ${{ inputs.release-tag }} santa-tinsel-${{ inputs.release-tag }}-${{ matrix.platform }} --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

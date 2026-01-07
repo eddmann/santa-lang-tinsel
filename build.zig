@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
-        .name = "santa-fmt",
+        .name = "santa-tinsel",
         .root_module = exe_mod,
     });
     exe.root_module.addImport("lib", lib_mod);

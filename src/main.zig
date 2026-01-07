@@ -3,17 +3,17 @@ const build_options = @import("build_options");
 const lib = @import("lib");
 
 const usage =
-    \\usage: santa-fmt [flags] [path ...]
+    \\usage: santa-tinsel [flags] [path ...]
     \\
     \\Flags:
     \\  -d    display diffs instead of rewriting files
-    \\  -l    list files whose formatting differs from santa-fmt's
+    \\  -l    list files whose formatting differs from santa-tinsel's
     \\  -w    write result to (source) file instead of stdout
     \\  -h    display this help and exit
     \\
-    \\Without flags, santa-fmt prints reformatted sources to stdout.
-    \\Without path, santa-fmt reads from stdin.
-    \\Given a directory, santa-fmt recursively processes all .santa files.
+    \\Without flags, santa-tinsel prints reformatted sources to stdout.
+    \\Without path, santa-tinsel reads from stdin.
+    \\Given a directory, santa-tinsel recursively processes all .santa files.
     \\
 ;
 
@@ -56,9 +56,9 @@ pub fn main() !void {
             try paths.append(allocator, arg);
         } else {
             var buf: [256]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "santa-fmt: unknown flag: {s}\n", .{arg}) catch unreachable;
+            const msg = std.fmt.bufPrint(&buf, "santa-tinsel: unknown flag: {s}\n", .{arg}) catch unreachable;
             try stderr_file.writeAll(msg);
-            try stderr_file.writeAll("usage: santa-fmt [flags] [path ...]\n");
+            try stderr_file.writeAll("usage: santa-tinsel [flags] [path ...]\n");
             std.process.exit(2);
         }
     }
@@ -66,7 +66,7 @@ pub fn main() !void {
     // No paths: read from stdin
     if (paths.items.len == 0) {
         if (mode == .format_write) {
-            try stderr_file.writeAll("santa-fmt: cannot use -w with stdin\n");
+            try stderr_file.writeAll("santa-tinsel: cannot use -w with stdin\n");
             std.process.exit(2);
         }
         try processStdin(allocator, mode, stdout_file, stderr_file);
@@ -78,7 +78,7 @@ pub fn main() !void {
     for (paths.items) |path| {
         const stat = std.fs.cwd().statFile(path) catch |err| {
             var buf: [512]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+            const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
             try stderr_file.writeAll(msg);
             std.process.exit(1);
         };
@@ -107,7 +107,7 @@ fn processStdin(allocator: std.mem.Allocator, mode: Mode, stdout_file: std.fs.Fi
 
     const formatted = lib.format(allocator, source) catch |err| {
         var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: <stdin>: {s}\n", .{@errorName(err)}) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: <stdin>: {s}\n", .{@errorName(err)}) catch unreachable;
         try stderr_file.writeAll(msg);
         std.process.exit(1);
     };
@@ -133,7 +133,7 @@ fn processStdin(allocator: std.mem.Allocator, mode: Mode, stdout_file: std.fs.Fi
 fn processFile(allocator: std.mem.Allocator, path: []const u8, mode: Mode, stdout_file: std.fs.File, stderr_file: std.fs.File) !bool {
     const source = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch |err| {
         var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
         try stderr_file.writeAll(msg);
         return false;
     };
@@ -141,7 +141,7 @@ fn processFile(allocator: std.mem.Allocator, path: []const u8, mode: Mode, stdou
 
     const formatted = lib.format(allocator, source) catch |err| {
         var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
         try stderr_file.writeAll(msg);
         return false;
     };
@@ -158,7 +158,7 @@ fn processFile(allocator: std.mem.Allocator, path: []const u8, mode: Mode, stdou
                     .data = formatted,
                 }) catch |err| {
                     var buf: [512]u8 = undefined;
-                    const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+                    const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
                     try stderr_file.writeAll(msg);
                     return false;
                 };
@@ -186,7 +186,7 @@ fn processDirectory(allocator: std.mem.Allocator, dir_path: []const u8, mode: Mo
 
     var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
         var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
         try stderr_file.writeAll(msg);
         return false;
     };
@@ -194,7 +194,7 @@ fn processDirectory(allocator: std.mem.Allocator, dir_path: []const u8, mode: Mo
 
     var walker = dir.walk(allocator) catch |err| {
         var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
         try stderr_file.writeAll(msg);
         return false;
     };
@@ -202,7 +202,7 @@ fn processDirectory(allocator: std.mem.Allocator, dir_path: []const u8, mode: Mo
 
     while (walker.next() catch |err| {
         var buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        const msg = std.fmt.bufPrint(&buf, "santa-tinsel: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
         try stderr_file.writeAll(msg);
         return any_diff;
     }) |entry| {

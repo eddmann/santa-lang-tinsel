@@ -1,12 +1,12 @@
 <p align="center"><a href="https://eddmann.com/santa-lang/"><img src="./docs/logo.png" alt="santa-lang" width="400px" /></a></p>
 
-# santa-lang Format
+# santa-lang Tinsel
 
 Opinionated code formatter for [santa-lang](https://eddmann.com/santa-lang/), written in Zig.
 
 ## Overview
 
-santa-fmt is a fast, opinionated code formatter that enforces a single canonical style for santa-lang code. It uses the Wadler-Lindig pretty printing algorithm for intelligent line-breaking decisions.
+santa-tinsel is a fast, opinionated code formatter that enforces a single canonical style for santa-lang code. It uses the Wadler-Lindig pretty printing algorithm for intelligent line-breaking decisions.
 
 Key features:
 
@@ -40,32 +40,32 @@ Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/sa
 
 | Platform              | Artifact                          |
 | --------------------- | --------------------------------- |
-| Linux (x86_64)        | `santa-fmt-{version}-linux-amd64` |
-| Linux (ARM64)         | `santa-fmt-{version}-linux-arm64` |
-| macOS (Intel)         | `santa-fmt-{version}-macos-amd64` |
-| macOS (Apple Silicon) | `santa-fmt-{version}-macos-arm64` |
-| WebAssembly (WASI)    | `santa-fmt-{version}.wasm`        |
+| Linux (x86_64)        | `santa-tinsel-{version}-linux-amd64` |
+| Linux (ARM64)         | `santa-tinsel-{version}-linux-arm64` |
+| macOS (Intel)         | `santa-tinsel-{version}-macos-amd64` |
+| macOS (Apple Silicon) | `santa-tinsel-{version}-macos-arm64` |
+| WebAssembly (WASI)    | `santa-tinsel-{version}.wasm`        |
 
 ## Usage
 
 ```bash
 # Format stdin to stdout
-echo 'let x=1+2' | santa-fmt
+echo 'let x=1+2' | santa-tinsel
 
 # Format a file to stdout
-santa-fmt solution.santa
+santa-tinsel solution.santa
 
 # Format a file in place
-santa-fmt -w solution.santa
+santa-tinsel -w solution.santa
 
 # List files that differ from formatted (useful for CI)
-santa-fmt -l solution.santa
+santa-tinsel -l solution.santa
 
 # Show diff of changes
-santa-fmt -d solution.santa
+santa-tinsel -d solution.santa
 
 # Format all .santa files in a directory recursively
-santa-fmt -w src/
+santa-tinsel -w src/
 ```
 
 ### Options
@@ -139,7 +139,7 @@ make test
 make can-release
 ```
 
-The executable will be at `zig-out/bin/santa-fmt`.
+The executable will be at `zig-out/bin/santa-tinsel`.
 
 ## Development
 
@@ -182,7 +182,7 @@ make can-release   # Run before submitting PR (lint + test)
 | 2-space indentation    | Consistent indent level                |
 | Dict shorthand         | `#{"foo": foo}` → `#{foo}`             |
 
-## Other Reindeer
+## Reindeer (implementations)
 
 The language has been implemented multiple times to explore different execution models and technologies.
 
@@ -194,7 +194,6 @@ The language has been implemented multiple times to explore different execution 
 | [Donner](https://github.com/eddmann/santa-lang-donner)   | JVM bytecode compiler    | Kotlin     |
 | [Vixen](https://github.com/eddmann/santa-lang-vixen)     | Embedded bytecode VM     | C          |
 | [Prancer](https://github.com/eddmann/santa-lang-prancer) | Tree-walking interpreter | TypeScript |
-| [Format](https://github.com/eddmann/santa-lang-format)   | Code formatter           | Zig        |
 
 ## License
 

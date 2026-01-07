@@ -1,10 +1,10 @@
-# santa-lang Implementation
+# santa-lang Tinsel
 
-This is **Format**, a santa-lang tool implementation. santa-lang is a functional programming language designed for solving Advent of Code puzzles. Multiple implementations exist to explore different execution models.
+**Tinsel** is an opinionated code formatter for [santa-lang](https://github.com/eddmann/santa-lang), a functional programming language designed for solving Advent of Code puzzles.
 
 ## Project Overview
 
-- **Format**: Opinionated code formatter written in Zig
+- Opinionated code formatter written in Zig
 - Architecture: Source → Lexer → Parser → AST → Builder → Doc IR → Printer
 - Wadler-Lindig pretty printing algorithm for intelligent line-breaking
 - No external dependencies (Zig standard library only)
