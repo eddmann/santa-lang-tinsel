@@ -36,7 +36,7 @@ Source Code → Lexer → Parser → Builder → Printer → Formatted Code
 
 ### Release Binaries
 
-Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/santa-lang-format/releases):
+Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/santa-lang-tinsel/releases):
 
 | Platform              | Artifact                          |
 | --------------------- | --------------------------------- |
