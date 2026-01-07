@@ -51,26 +51,27 @@ echo 'let x=1+2' | santa-fmt
 santa-fmt program.santa
 
 # Format a file in place
-santa-fmt --fmt-write program.santa
+santa-fmt -w program.santa
 
-# Check if a file is formatted (exit 1 if not)
-santa-fmt --fmt-check program.santa
+# List files that differ from formatted (useful for CI)
+santa-fmt -l program.santa
 
-# Format an expression directly
-santa-fmt -e '[1,2,3]|>sum'
-# Output: [1, 2, 3] |> sum
+# Show diff of changes
+santa-fmt -d program.santa
+
+# Format all .santa files in a directory recursively
+santa-fmt -w src/
 ```
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `-f, --fmt` | Format to stdout (default) |
-| `-w, --fmt-write` | Format file in place |
-| `-c, --fmt-check` | Check if formatted (exit 1 if not) |
-| `-e <expr>` | Format expression from argument |
-| `-v, --version` | Display version information |
-| `-h, --help` | Show help message |
+| (none) | Format to stdout (default) |
+| `-w` | Write result to source file (format in place) |
+| `-l` | List files whose formatting differs (exit 1 if any differ) |
+| `-d` | Display diffs instead of rewriting files |
+| `-h` | Display help and exit |
 
 ### Library
 

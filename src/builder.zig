@@ -685,7 +685,16 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
 
     // Force break when more than 1 function in the chain (2+ pipes)
     const force_break = functions.len > 1;
+    return buildChainCore(builder, initial, functions, op, force_break);
+}
 
+/// Build a pipe/compose chain with forced line breaks (used for implicit returns).
+fn buildChainForceBreak(builder: *DocBuilder, initial: *const Expression, functions: []*Expression, op: []const u8) BuildError!*const Doc {
+    return buildChainCore(builder, initial, functions, op, true);
+}
+
+/// Core chain building logic shared by buildChain and buildChainForceBreak.
+fn buildChainCore(builder: *DocBuilder, initial: *const Expression, functions: []*Expression, op: []const u8, force_break: bool) BuildError!*const Doc {
     var chain: std.ArrayList(*const Doc) = .empty;
     const chain_alloc = builder.arena.allocator();
     for (functions, 0..) |f, i| {
@@ -717,39 +726,6 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
 
     const chain_result = try builder.concat(p);
     return if (force_break) chain_result else builder.group(chain_result);
-}
-
-/// Build a pipe/compose chain with forced line breaks (used for implicit returns).
-fn buildChainForceBreak(builder: *DocBuilder, initial: *const Expression, functions: []*Expression, op: []const u8) BuildError!*const Doc {
-    var chain: std.ArrayList(*const Doc) = .empty;
-    const chain_alloc = builder.arena.allocator();
-    for (functions, 0..) |f, i| {
-        const is_last = i == functions.len - 1;
-
-        // Lambdas that aren't the last element need block braces
-        const f_doc = if (f.kind == .function and !is_last)
-            try buildLambdaWithBlock(builder, f.kind.function.parameters, f.kind.function.body)
-        else
-            try buildExpression(builder, f);
-
-        const op_parts = try builder.arena.allocator().alloc(*const Doc, 3);
-        op_parts[0] = try builder.hardLine(); // Force break
-        op_parts[1] = try builder.text(op);
-        op_parts[2] = try builder.text(" ");
-
-        const parts = try builder.arena.allocator().alloc(*const Doc, 2);
-        parts[0] = try builder.concat(op_parts);
-        parts[1] = f_doc;
-        try chain.append(chain_alloc, try builder.concat(parts));
-    }
-
-    const chain_doc = try builder.concat(try chain.toOwnedSlice(chain_alloc));
-    const nested = try builder.nest(INDENT_SIZE, chain_doc);
-
-    const p = try builder.arena.allocator().alloc(*const Doc, 2);
-    p[0] = try buildExpression(builder, initial);
-    p[1] = nested;
-    return builder.concat(p); // No group wrapping - always break
 }
 
 fn buildCallForChain(builder: *DocBuilder, expr: *const Expression) !?*const Doc {
