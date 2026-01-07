@@ -1,6 +1,6 @@
 # santa-lang Tinsel
 
-**Tinsel** is an opinionated code formatter for [santa-lang](https://github.com/eddmann/santa-lang), a functional programming language designed for solving Advent of Code puzzles.
+Opinionated code formatter for [santa-lang](https://github.com/eddmann/santa-lang), a functional programming language designed for solving Advent of Code puzzles.
 
 ## Project Overview
 
