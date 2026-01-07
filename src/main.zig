@@ -3,24 +3,25 @@ const build_options = @import("build_options");
 const lib = @import("lib");
 
 const usage =
-    \\Usage: santa-fmt [options] [file]
+    \\usage: santa-fmt [flags] [path ...]
     \\
-    \\Options:
-    \\  -f, --fmt          Format to stdout (default)
-    \\  -w, --fmt-write    Format in place
-    \\  -c, --fmt-check    Check if formatted (exit 1 if not)
-    \\  -e <expr>          Format expression from argument
-    \\  -v, --version      Display version information
-    \\  -h, --help         Show this help message
+    \\Flags:
+    \\  -d    display diffs instead of rewriting files
+    \\  -l    list files whose formatting differs from santa-fmt's
+    \\  -w    write result to (source) file instead of stdout
+    \\  -h    display this help and exit
     \\
-    \\If no file is specified, reads from stdin.
+    \\Without flags, santa-fmt prints reformatted sources to stdout.
+    \\Without path, santa-fmt reads from stdin.
+    \\Given a directory, santa-fmt recursively processes all .santa files.
     \\
 ;
 
 const Mode = enum {
-    format_stdout,
-    format_write,
-    format_check,
+    format_stdout, // default: print to stdout
+    format_write, // -w: write to file
+    list_diff, // -l: list files that differ
+    show_diff, // -d: show diffs
 };
 
 pub fn main() !void {
@@ -32,91 +33,257 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var mode: Mode = .format_stdout;
-    var file_path: ?[]const u8 = null;
-    var expr_source: ?[]const u8 = null;
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(allocator);
 
-    const stdout = std.fs.File.stdout();
-    const stderr = std.fs.File.stderr();
+    const stdout_file = std.fs.File.stdout();
+    const stderr_file = std.fs.File.stderr();
 
+    // Parse arguments
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try stdout.writeAll(usage);
+        if (std.mem.eql(u8, arg, "-h")) {
+            try stdout_file.writeAll(usage);
             return;
-        } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) {
-            var buf: [256]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "santa-fmt {s}\n", .{build_options.version}) catch unreachable;
-            try stdout.writeAll(msg);
-            return;
-        } else if (std.mem.eql(u8, arg, "-f") or std.mem.eql(u8, arg, "--fmt")) {
-            mode = .format_stdout;
-        } else if (std.mem.eql(u8, arg, "-w") or std.mem.eql(u8, arg, "--fmt-write")) {
+        } else if (std.mem.eql(u8, arg, "-d")) {
+            mode = .show_diff;
+        } else if (std.mem.eql(u8, arg, "-l")) {
+            mode = .list_diff;
+        } else if (std.mem.eql(u8, arg, "-w")) {
             mode = .format_write;
-        } else if (std.mem.eql(u8, arg, "-c") or std.mem.eql(u8, arg, "--fmt-check")) {
-            mode = .format_check;
-        } else if (std.mem.eql(u8, arg, "-e")) {
-            i += 1;
-            if (i >= args.len) {
-                try stderr.writeAll("Error: -e requires an argument\n");
-                std.process.exit(1);
-            }
-            expr_source = args[i];
         } else if (!std.mem.startsWith(u8, arg, "-")) {
-            file_path = arg;
+            try paths.append(allocator, arg);
         } else {
-            std.debug.print("Unknown option: {s}\n", .{arg});
-            std.process.exit(1);
+            var buf: [256]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "santa-fmt: unknown flag: {s}\n", .{arg}) catch unreachable;
+            try stderr_file.writeAll(msg);
+            try stderr_file.writeAll("usage: santa-fmt [flags] [path ...]\n");
+            std.process.exit(2);
         }
     }
 
-    // Get source
-    const source: []const u8 = if (expr_source) |expr|
-        expr
-    else if (file_path) |path|
-        try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024)
-    else blk: {
-        // Read from stdin
-        var stdin = std.fs.File.stdin();
-        break :blk try stdin.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    };
-    defer if (file_path != null or expr_source == null) allocator.free(source);
+    // No paths: read from stdin
+    if (paths.items.len == 0) {
+        if (mode == .format_write) {
+            try stderr_file.writeAll("santa-fmt: cannot use -w with stdin\n");
+            std.process.exit(2);
+        }
+        try processStdin(allocator, mode, stdout_file, stderr_file);
+        return;
+    }
 
-    // Format
+    // Process each path
+    var any_diff = false;
+    for (paths.items) |path| {
+        const stat = std.fs.cwd().statFile(path) catch |err| {
+            var buf: [512]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+            try stderr_file.writeAll(msg);
+            std.process.exit(1);
+        };
+
+        if (stat.kind == .directory) {
+            // Recursively process directory
+            const had_diff = try processDirectory(allocator, path, mode, stdout_file, stderr_file);
+            if (had_diff) any_diff = true;
+        } else {
+            // Process single file
+            const had_diff = try processFile(allocator, path, mode, stdout_file, stderr_file);
+            if (had_diff) any_diff = true;
+        }
+    }
+
+    // Exit 1 if any files differed (for -l mode, useful for CI)
+    if (mode == .list_diff and any_diff) {
+        std.process.exit(1);
+    }
+}
+
+fn processStdin(allocator: std.mem.Allocator, mode: Mode, stdout_file: std.fs.File, stderr_file: std.fs.File) !void {
+    const stdin = std.fs.File.stdin();
+    const source = try stdin.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(source);
+
     const formatted = lib.format(allocator, source) catch |err| {
-        std.debug.print("Error: {s}\n", .{@errorName(err)});
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: <stdin>: {s}\n", .{@errorName(err)}) catch unreachable;
+        try stderr_file.writeAll(msg);
         std.process.exit(1);
     };
     defer allocator.free(formatted);
 
     switch (mode) {
-        .format_stdout => {
-            try stdout.writeAll(formatted);
+        .format_stdout => try stdout_file.writeAll(formatted),
+        .format_write => unreachable, // checked earlier
+        .list_diff => {
+            if (!std.mem.eql(u8, formatted, source)) {
+                try stdout_file.writeAll("<stdin>\n");
+                std.process.exit(1);
+            }
         },
+        .show_diff => {
+            if (!std.mem.eql(u8, formatted, source)) {
+                try printDiff(allocator, source, formatted, "<stdin>", stdout_file);
+            }
+        },
+    }
+}
+
+fn processFile(allocator: std.mem.Allocator, path: []const u8, mode: Mode, stdout_file: std.fs.File, stderr_file: std.fs.File) !bool {
+    const source = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+        try stderr_file.writeAll(msg);
+        return false;
+    };
+    defer allocator.free(source);
+
+    const formatted = lib.format(allocator, source) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+        try stderr_file.writeAll(msg);
+        return false;
+    };
+    defer allocator.free(formatted);
+
+    const differs = !std.mem.eql(u8, formatted, source);
+
+    switch (mode) {
+        .format_stdout => try stdout_file.writeAll(formatted),
         .format_write => {
-            if (file_path) |path| {
-                try std.fs.cwd().writeFile(.{
+            if (differs) {
+                std.fs.cwd().writeFile(.{
                     .sub_path = path,
                     .data = formatted,
-                });
-            } else {
-                try stderr.writeAll("Error: --fmt-write requires a file path\n");
-                std.process.exit(1);
+                }) catch |err| {
+                    var buf: [512]u8 = undefined;
+                    const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ path, @errorName(err) }) catch unreachable;
+                    try stderr_file.writeAll(msg);
+                    return false;
+                };
             }
         },
-        .format_check => {
-            if (std.mem.eql(u8, formatted, source)) {
-                // Already formatted
-                std.process.exit(0);
-            } else {
-                // Needs formatting
-                if (file_path) |path| {
-                    std.debug.print("{s}: not formatted\n", .{path});
-                } else {
-                    try stderr.writeAll("stdin: not formatted\n");
+        .list_diff => {
+            if (differs) {
+                var buf: [4096]u8 = undefined;
+                const msg = std.fmt.bufPrint(&buf, "{s}\n", .{path}) catch unreachable;
+                try stdout_file.writeAll(msg);
+            }
+        },
+        .show_diff => {
+            if (differs) {
+                try printDiff(allocator, source, formatted, path, stdout_file);
+            }
+        },
+    }
+
+    return differs;
+}
+
+fn processDirectory(allocator: std.mem.Allocator, dir_path: []const u8, mode: Mode, stdout_file: std.fs.File, stderr_file: std.fs.File) !bool {
+    var any_diff = false;
+
+    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        try stderr_file.writeAll(msg);
+        return false;
+    };
+    defer dir.close();
+
+    var walker = dir.walk(allocator) catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        try stderr_file.writeAll(msg);
+        return false;
+    };
+    defer walker.deinit();
+
+    while (walker.next() catch |err| {
+        var buf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "santa-fmt: {s}: {s}\n", .{ dir_path, @errorName(err) }) catch unreachable;
+        try stderr_file.writeAll(msg);
+        return any_diff;
+    }) |entry| {
+        if (entry.kind != .file) continue;
+
+        // Check for .santa extension
+        if (!std.mem.endsWith(u8, entry.basename, ".santa")) continue;
+
+        // Skip hidden files
+        if (std.mem.startsWith(u8, entry.basename, ".")) continue;
+
+        // Build full path
+        const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.path });
+        defer allocator.free(full_path);
+
+        const had_diff = try processFile(allocator, full_path, mode, stdout_file, stderr_file);
+        if (had_diff) any_diff = true;
+    }
+
+    return any_diff;
+}
+
+fn printDiff(allocator: std.mem.Allocator, original: []const u8, formatted: []const u8, filename: []const u8, file: std.fs.File) !void {
+    // Simple line-by-line diff output (unified diff style header)
+    var buf: [4096]u8 = undefined;
+
+    var msg = std.fmt.bufPrint(&buf, "diff {s} {s}\n", .{ filename, filename }) catch unreachable;
+    try file.writeAll(msg);
+    msg = std.fmt.bufPrint(&buf, "--- {s}\n", .{filename}) catch unreachable;
+    try file.writeAll(msg);
+    msg = std.fmt.bufPrint(&buf, "+++ {s}\n", .{filename}) catch unreachable;
+    try file.writeAll(msg);
+
+    // Split into lines
+    var orig_lines: std.ArrayList([]const u8) = .empty;
+    defer orig_lines.deinit(allocator);
+    var fmt_lines: std.ArrayList([]const u8) = .empty;
+    defer fmt_lines.deinit(allocator);
+
+    var orig_iter = std.mem.splitScalar(u8, original, '\n');
+    while (orig_iter.next()) |line| {
+        try orig_lines.append(allocator, line);
+    }
+
+    var fmt_iter = std.mem.splitScalar(u8, formatted, '\n');
+    while (fmt_iter.next()) |line| {
+        try fmt_lines.append(allocator, line);
+    }
+
+    // Simple diff: show all changes
+    const max_lines = @max(orig_lines.items.len, fmt_lines.items.len);
+    var line_num: usize = 1;
+    var i: usize = 0;
+
+    while (i < max_lines) : (i += 1) {
+        const orig_line = if (i < orig_lines.items.len) orig_lines.items[i] else null;
+        const fmt_line = if (i < fmt_lines.items.len) fmt_lines.items[i] else null;
+
+        if (orig_line) |ol| {
+            if (fmt_line) |fl| {
+                if (!std.mem.eql(u8, ol, fl)) {
+                    msg = std.fmt.bufPrint(&buf, "@@ -{d} +{d} @@\n", .{ line_num, line_num }) catch unreachable;
+                    try file.writeAll(msg);
+                    msg = std.fmt.bufPrint(&buf, "-{s}\n", .{ol}) catch unreachable;
+                    try file.writeAll(msg);
+                    msg = std.fmt.bufPrint(&buf, "+{s}\n", .{fl}) catch unreachable;
+                    try file.writeAll(msg);
                 }
-                std.process.exit(1);
+            } else {
+                msg = std.fmt.bufPrint(&buf, "@@ -{d} @@\n", .{line_num}) catch unreachable;
+                try file.writeAll(msg);
+                msg = std.fmt.bufPrint(&buf, "-{s}\n", .{ol}) catch unreachable;
+                try file.writeAll(msg);
             }
-        },
+        } else if (fmt_line) |fl| {
+            msg = std.fmt.bufPrint(&buf, "@@ +{d} @@\n", .{line_num}) catch unreachable;
+            try file.writeAll(msg);
+            msg = std.fmt.bufPrint(&buf, "+{s}\n", .{fl}) catch unreachable;
+            try file.writeAll(msg);
+        }
+
+        line_num += 1;
     }
 }
