@@ -1,0 +1,36 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - draft-release
+
+concurrency: build
+
+jobs:
+  update-draft-release:
+    name: Update draft release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      tag_name: ${{ steps.update-release-content.outputs.tag_name }}
+    steps:
+      - name: Update release content
+        id: update-release-content
+        uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          commitish: 'draft-release'
+
+  cli:
+    name: Build CLI
+    needs: update-draft-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-cli.yml
+    with:
+      release-tag: ${{ needs.update-draft-release.outputs.tag_name }}
+    secrets: inherit

@@ -1,0 +1,20 @@
+name-template: $RESOLVED_VERSION
+tag-template: $RESOLVED_VERSION
+commitish: draft-release
+
+version-resolver:
+  major:
+    labels:
+      - 'major'
+  minor:
+    labels:
+      - 'minor'
+  patch:
+    labels:
+      - 'patch'
+  default: patch
+
+template: |
+  ## Changes
+
+  $CHANGES

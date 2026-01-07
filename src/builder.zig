@@ -1160,4 +1160,3 @@ fn isMultilineExpression(expr: *const Expression) bool {
         else => false,
     };
 }
-

@@ -1637,4 +1637,3 @@ test "parser: trailing comment" {
 
     try testing.expect(program.statements[0].trailing_comment != null);
 }
-

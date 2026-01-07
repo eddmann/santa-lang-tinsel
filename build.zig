@@ -4,6 +4,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Version option (defaults to "dev" for local builds)
+    const version = b.option([]const u8, "version", "Version string") orelse "dev";
+
+    // Build options for passing version to source
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
+
     // Library module
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
@@ -12,13 +19,16 @@ pub fn build(b: *std.Build) void {
     });
 
     // Executable
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.addOptions("build_options", options);
+
     const exe = b.addExecutable(.{
         .name = "santa-fmt",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = exe_mod,
     });
     exe.root_module.addImport("lib", lib_mod);
     b.installArtifact(exe);

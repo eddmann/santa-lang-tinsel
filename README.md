@@ -11,19 +11,29 @@ An opinionated code formatter for [santa-lang](https://github.com/eddmann/santa-
 - **Comment-preserving** - Keeps standalone and trailing comments intact
 - **Library & CLI** - Use as a library or command-line tool
 
+## Installation
+
+### Release Binaries
+
+Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/santa-lang-format/releases):
+
+| Platform              | Artifact                           |
+| --------------------- | ---------------------------------- |
+| Linux (x86_64)        | `santa-fmt-{version}-linux-amd64`  |
+| Linux (ARM64)         | `santa-fmt-{version}-linux-arm64`  |
+| macOS (Intel)         | `santa-fmt-{version}-macos-amd64`  |
+| macOS (Apple Silicon) | `santa-fmt-{version}-macos-arm64`  |
+
 ## Building
 
 Requires Zig 0.15.x:
 
 ```bash
-# Build the CLI
-zig build
-
-# Run tests
-zig build test
-
-# Build optimized release
-zig build -Doptimize=ReleaseFast
+make build         # Build CLI (debug)
+make release       # Build CLI (release)
+make test          # Run all tests
+make can-release   # Run all CI checks (lint + test)
+make help          # Show all available targets
 ```
 
 The executable will be at `zig-out/bin/santa-fmt`.
@@ -59,6 +69,7 @@ santa-fmt -e '[1,2,3]|>sum'
 | `-w, --fmt-write` | Format file in place |
 | `-c, --fmt-check` | Check if formatted (exit 1 if not) |
 | `-e <expr>` | Format expression from argument |
+| `-v, --version` | Display version information |
 | `-h, --help` | Show help message |
 
 ### Library

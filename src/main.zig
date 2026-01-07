@@ -1,5 +1,6 @@
 const std = @import("std");
-const lib = @import("lib.zig");
+const build_options = @import("build_options");
+const lib = @import("lib");
 
 const usage =
     \\Usage: santa-fmt [options] [file]
@@ -9,6 +10,7 @@ const usage =
     \\  -w, --fmt-write    Format in place
     \\  -c, --fmt-check    Check if formatted (exit 1 if not)
     \\  -e <expr>          Format expression from argument
+    \\  -v, --version      Display version information
     \\  -h, --help         Show this help message
     \\
     \\If no file is specified, reads from stdin.
@@ -33,11 +35,19 @@ pub fn main() !void {
     var file_path: ?[]const u8 = null;
     var expr_source: ?[]const u8 = null;
 
+    const stdout = std.fs.File.stdout();
+    const stderr = std.fs.File.stderr();
+
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try std.fs.File.stdout().writeAll(usage);
+            try stdout.writeAll(usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) {
+            var buf: [256]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "santa-fmt {s}\n", .{build_options.version}) catch unreachable;
+            try stdout.writeAll(msg);
             return;
         } else if (std.mem.eql(u8, arg, "-f") or std.mem.eql(u8, arg, "--fmt")) {
             mode = .format_stdout;
@@ -48,7 +58,7 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, arg, "-e")) {
             i += 1;
             if (i >= args.len) {
-                try std.fs.File.stderr().writeAll("Error: -e requires an argument\n");
+                try stderr.writeAll("Error: -e requires an argument\n");
                 std.process.exit(1);
             }
             expr_source = args[i];
@@ -81,7 +91,7 @@ pub fn main() !void {
 
     switch (mode) {
         .format_stdout => {
-            try std.fs.File.stdout().writeAll(formatted);
+            try stdout.writeAll(formatted);
         },
         .format_write => {
             if (file_path) |path| {
@@ -90,7 +100,7 @@ pub fn main() !void {
                     .data = formatted,
                 });
             } else {
-                try std.fs.File.stderr().writeAll("Error: --fmt-write requires a file path\n");
+                try stderr.writeAll("Error: --fmt-write requires a file path\n");
                 std.process.exit(1);
             }
         },
@@ -103,7 +113,7 @@ pub fn main() !void {
                 if (file_path) |path| {
                     std.debug.print("{s}: not formatted\n", .{path});
                 } else {
-                    try std.fs.File.stderr().writeAll("stdin: not formatted\n");
+                    try stderr.writeAll("stdin: not formatted\n");
                 }
                 std.process.exit(1);
             }
