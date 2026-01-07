@@ -839,9 +839,8 @@ test "format: preserves parens for pipe in subtraction" {
 // === SECTION COMMENT TEST ===
 
 test "format: trailing comment in section" {
-    // Note: Zig implementation attaches trailing comment to section (after closing brace)
-    // rather than to inner statement. This is a behavioral difference from the Rust implementation.
-    try expectFormat("part_one: let x = 1  // inline", "part_one: {\n  let x = 1\n} // inline\n");
+    // Trailing comments work in sections (wrapped in braces due to trailing content)
+    try expectFormat("part_one: let x = 1  // inline", "part_one: {\n  let x = 1 // inline\n}\n");
 }
 
 // === DICT PATTERN TEST ===

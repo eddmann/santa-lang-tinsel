@@ -255,14 +255,23 @@ pub const Parser = struct {
                 .source = .{ .start = 0, .end = 0 },
             };
         } else {
-            // Single expression
+            // Single expression - capture the start line for trailing comment detection
+            const expr_start_line = self.current_token.line;
             const expr = try self.parseExpression(.lowest);
+
+            // Check for trailing comment on same line as expression start
+            var trailing_comment: ?[]const u8 = null;
+            if (self.currentIs(.comment) and self.current_token.line == expr_start_line) {
+                trailing_comment = try self.allocator.dupe(u8, self.lexer.getSource(self.current_token));
+                self.nextToken();
+            }
+
             const stmt = try self.allocator.alloc(Statement, 1);
             stmt[0] = .{
                 .kind = .{ .expression = expr },
                 .source = expr.source,
                 .preceded_by_blank_line = false,
-                .trailing_comment = null,
+                .trailing_comment = trailing_comment,
             };
             body.* = .{
                 .statements = stmt,

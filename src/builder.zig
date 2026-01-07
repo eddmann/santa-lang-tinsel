@@ -189,9 +189,10 @@ fn buildSection(builder: *DocBuilder, section: *const ast.Section, is_top_level:
     const always_braces = is_top_level and (std.mem.eql(u8, section.name, "part_one") or std.mem.eql(u8, section.name, "part_two"));
 
     // Check if we can inline the body
+    // Don't inline if the statement has a trailing comment (it needs braces to contain the comment)
     if (!always_braces and section.body.statements.len == 1) {
         const first_stmt = &section.body.statements[0];
-        if (first_stmt.kind == .expression) {
+        if (first_stmt.trailing_comment == null and first_stmt.kind == .expression) {
             const expr = first_stmt.kind.expression;
             if (!containsBlockLambda(expr)) {
                 try parts.append(parts_alloc, try buildExpression(builder, expr));
