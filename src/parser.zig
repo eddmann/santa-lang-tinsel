@@ -195,8 +195,10 @@ pub const Parser = struct {
             },
         };
 
-        // Skip optional semicolon
+        // Track and consume optional semicolon
+        var has_semicolon = false;
         if (self.currentIs(.semicolon)) {
+            has_semicolon = true;
             self.nextToken();
         }
 
@@ -214,6 +216,7 @@ pub const Parser = struct {
             .source = .{ .start = start_token.start, .end = end },
             .preceded_by_blank_line = preceded_by_blank,
             .trailing_comment = trailing_comment,
+            .has_trailing_semicolon = has_semicolon,
         };
     }
 
@@ -272,6 +275,7 @@ pub const Parser = struct {
                 .source = expr.source,
                 .preceded_by_blank_line = false,
                 .trailing_comment = trailing_comment,
+                .has_trailing_semicolon = false,
             };
             body.* = .{
                 .statements = stmt,
@@ -911,6 +915,7 @@ pub const Parser = struct {
                 .source = .{ .start = start, .end = self.current_token.start },
                 .preceded_by_blank_line = false,
                 .trailing_comment = null,
+                .has_trailing_semicolon = false,
             };
         } else {
             // Expression body
@@ -918,6 +923,7 @@ pub const Parser = struct {
             body.* = .{
                 .kind = .{ .expression = expr },
                 .source = expr.source,
+                .has_trailing_semicolon = false,
                 .preceded_by_blank_line = false,
                 .trailing_comment = null,
             };
@@ -1563,6 +1569,7 @@ pub const Parser = struct {
             .source = .{ .start = start, .end = self.current_token.start },
             .preceded_by_blank_line = false,
             .trailing_comment = null,
+            .has_trailing_semicolon = false,
         };
 
         return stmt;

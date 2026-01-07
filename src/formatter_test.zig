@@ -38,8 +38,9 @@ test "format: string simple" {
     try expectFormat("\"hello\"", "\"hello\"\n");
 }
 
-test "format: string preserves literal newlines" {
-    try expectFormat("\"a\\nb\"", "\"a\nb\"\n");
+test "format: string escapes short newlines" {
+    // Short strings (<=50 chars, <=3 newlines) have newlines escaped
+    try expectFormat("\"a\\nb\"", "\"a\\nb\"\n");
 }
 
 test "format: string with tab" {
@@ -231,7 +232,8 @@ test "format: lambda multi param" {
 }
 
 test "format: lambda with block" {
-    try expectFormat("|x| { let y = x + 1; y }", "|x| {\n  let y = x + 1\n  y\n}\n");
+    // Semicolon added before implicit return, blank line before implicit return expression
+    try expectFormat("|x| { let y = x + 1; y }", "|x| {\n  let y = x + 1;\n\n  y\n}\n");
 }
 
 // === CALLS ===
@@ -275,7 +277,8 @@ test "format: if else inline in lambda" {
 }
 
 test "format: if else multiline when body complex" {
-    try expectFormat("if x { let y = 1\ny } else { 2 }", "if x {\n  let y = 1\n  y\n} else {\n  2\n}\n");
+    // Semicolon and blank line before implicit return in if branch
+    try expectFormat("if x { let y = 1\ny } else { 2 }", "if x {\n  let y = 1;\n\n  y\n} else {\n  2\n}\n");
 }
 
 // === MATCH ===
@@ -289,7 +292,8 @@ test "format: match with guard inline" {
 }
 
 test "format: match multiline when complex" {
-    try expectFormat("match x { 1 { let y = 2\ny } }", "match x {\n  1 {\n    let y = 2\n    y\n  }\n}\n");
+    // Semicolon and blank line before implicit return in match case
+    try expectFormat("match x { 1 { let y = 2\ny } }", "match x {\n  1 {\n    let y = 2;\n\n    y\n  }\n}\n");
 }
 
 test "format: match preserves trailing comment on case" {
@@ -302,12 +306,14 @@ test "format: pipe two elements inline" {
     try expectFormat("[1, 2] |> sum", "[1, 2] |> sum\n");
 }
 
-test "format: pipe three or more elements inline when fits" {
-    try expectFormat("input |> lines |> filter(is_nice?) |> size", "input |> lines |> filter(is_nice?) |> size\n");
+test "format: pipe three or more elements force breaks" {
+    // Pipe chains with 2+ functions force break (functions.len > 1)
+    try expectFormat("input |> lines |> filter(is_nice?) |> size", "input\n  |> lines\n  |> filter(is_nice?)\n  |> size\n");
 }
 
-test "format: pipe chain inline when fits" {
-    try expectFormat("[1, 2, 3] |> map(f) |> filter(g) |> sum", "[1, 2, 3] |> map(f) |> filter(g) |> sum\n");
+test "format: pipe chain force breaks with 2+ pipes" {
+    // Pipe chains with 2+ functions force break (functions.len > 1)
+    try expectFormat("[1, 2, 3] |> map(f) |> filter(g) |> sum", "[1, 2, 3]\n  |> map(f)\n  |> filter(g)\n  |> sum\n");
 }
 
 test "format: pipe chain wraps at line width" {
@@ -372,7 +378,8 @@ test "format: section single expression inline" {
 }
 
 test "format: section multi statement keeps braces" {
-    try expectFormat("part_one: { let x = 1\nx + 2 }", "part_one: {\n  let x = 1\n  x + 2\n}\n");
+    // Semicolon before implicit return, blank line before implicit return
+    try expectFormat("part_one: { let x = 1\nx + 2 }", "part_one: {\n  let x = 1;\n\n  x + 2\n}\n");
 }
 
 test "format: section with attribute" {
@@ -470,13 +477,13 @@ test "format: lambda preserves braces for dict body" {
 }
 
 test "format: lambda preserves braces for pipe body" {
-    // Multi-pipe chain in implicit return position breaks across lines
+    // Multi-pipe chain forces break in lambda bodies (functions.len > 1)
     try expectFormat("|x| { [1, 2, 3] |> map(f) |> sum }", "|x| {\n  [1, 2, 3]\n    |> map(f)\n    |> sum\n}\n");
 }
 
 test "format: lambda preserves braces for composition body" {
-    // Multi-composition in implicit return position breaks across lines
-    try expectFormat("|x| { f >> g >> h }", "|x| {\n  f\n    >> g\n    >> h\n}\n");
+    // Composition uses soft breaks (line-width based)
+    try expectFormat("|x| { f >> g >> h }", "|x| {\n  f >> g >> h\n}\n");
 }
 
 test "format: lambda unwraps simple expression" {
@@ -543,11 +550,13 @@ test "format: preserves trailing comment on break" {
 // === BLANK LINE PRESERVATION ===
 
 test "format: preserves blank line between statements in block" {
-    try expectFormat("|x| { let a = 1\n\nlet b = 2\na + b }", "|x| {\n  let a = 1\n\n  let b = 2\n  a + b\n}\n");
+    // User blank lines preserved, semicolon before implicit return, blank line before implicit return
+    try expectFormat("|x| { let a = 1\n\nlet b = 2\na + b }", "|x| {\n  let a = 1\n\n  let b = 2;\n\n  a + b\n}\n");
 }
 
 test "format: single newline no blank in block" {
-    try expectFormat("|x| { let a = 1\nlet b = 2\na + b }", "|x| {\n  let a = 1\n  let b = 2\n  a + b\n}\n");
+    // Semicolon before implicit return, blank line before implicit return
+    try expectFormat("|x| { let a = 1\nlet b = 2\na + b }", "|x| {\n  let a = 1\n  let b = 2;\n\n  a + b\n}\n");
 }
 
 // === DICT PATTERNS ===
@@ -582,8 +591,9 @@ test "format: top level lets have blank lines" {
     try expectFormat("let a = 1\nlet b = 2\nlet c = 3", "let a = 1\n\nlet b = 2\n\nlet c = 3\n");
 }
 
-test "format: block final expression no auto blank line" {
-    try expectFormat("|x| { let a = 1\nlet b = 2\na + b }", "|x| {\n  let a = 1\n  let b = 2\n  a + b\n}\n");
+test "format: block final expression has blank line and semicolon" {
+    // Semicolon before implicit return, blank line before implicit return
+    try expectFormat("|x| { let a = 1\nlet b = 2\na + b }", "|x| {\n  let a = 1\n  let b = 2;\n\n  a + b\n}\n");
 }
 
 test "format: block single expression no blank line" {
@@ -698,18 +708,19 @@ test "format: string with form feed" {
     try expectFormat("\"a\x0Cb\"", "\"a\\fb\"\n");
 }
 
-test "format: string always preserves newlines" {
-    // Literal newlines are always preserved
-    try expectFormat("\"line1\nline2\"", "\"line1\nline2\"\n");
+test "format: string short escapes newlines" {
+    // Short strings (<= 50 chars, <= 3 newlines) have newlines escaped
+    try expectFormat("\"line1\nline2\"", "\"line1\\nline2\"\n");
 }
 
-test "format: string multiple newlines preserved" {
-    try expectFormat("\"a\nb\nc\"", "\"a\nb\nc\"\n");
+test "format: string short multiple newlines escaped" {
+    // 3 or fewer newlines in short string are escaped
+    try expectFormat("\"a\nb\nc\"", "\"a\\nb\\nc\"\n");
 }
 
-test "format: string escaped newline becomes literal" {
-    // Escaped \n in source becomes literal newline in output
-    try expectFormat("\"hello\\nworld\"", "\"hello\nworld\"\n");
+test "format: string short escaped newline stays escaped" {
+    // Escaped \n in short string stays escaped
+    try expectFormat("\"hello\\nworld\"", "\"hello\\nworld\"\n");
 }
 
 // === LINE WIDTH / WRAPPING TESTS ===
@@ -754,13 +765,13 @@ test "format: wrapped list has trailing comma" {
 // === TRAILING CLOSURE TESTS ===
 
 test "format: trailing closure preserved" {
-    // Note: Zig parser requires parens for calls - `each(|x| {...})` vs Rust's `each |x| {...}`
-    try expectFormat("each(|x| { let y = x + 1\nputs(y) })", "each |x| {\n  let y = x + 1\n  puts(y)\n}\n");
+    // Semicolon before implicit return
+    try expectFormat("each(|x| { let y = x + 1\nputs(y) })", "each |x| {\n  let y = x + 1;\n\n  puts(y)\n}\n");
 }
 
 test "format: trailing closure in pipe" {
-    // Note: Zig parser requires parens for calls - `each(|x| {...})` vs Rust's `each |x| {...}`
-    try expectFormat("[1, 2] |> each(|x| { let y = x\nputs(y) })", "[1, 2] |> each |x| {\n  let y = x\n  puts(y)\n}\n");
+    // Semicolon before implicit return
+    try expectFormat("[1, 2] |> each(|x| { let y = x\nputs(y) })", "[1, 2] |> each |x| {\n  let y = x;\n\n  puts(y)\n}\n");
 }
 
 test "format: single statement lambda trailing when long" {
@@ -814,7 +825,8 @@ test "format: composition wraps at line width" {
 // === PRECEDENCE / PARENS TEST ===
 
 test "format: preserves parens for pipe in subtraction" {
-    try expectFormat("a - (b |> f |> g)", "a - (b |> f |> g)\n");
+    // Multi-pipe chain forces break even in parentheses
+    try expectFormat("a - (b |> f |> g)", "a - (b\n  |> f\n  |> g)\n");
 }
 
 // === SECTION COMMENT TEST ===
@@ -832,8 +844,11 @@ test "format: function dictionary parameter explicit key" {
 
 // === BLOCK / RETURN TESTS ===
 
-test "format: return after let no auto blank line" {
-    try expectFormat("|x| { let v = process(x)\nreturn v |> map(f) |> filter(g) |> sum }", "|x| {\n  let v = process(x)\n  return v |> map(f) |> filter(g) |> sum\n}\n");
+test "format: return after let" {
+    // Return is not an implicit return so no semicolon before it
+    // Multi-pipe chain in return forces break
+    // Blank line because return with multiline expression
+    try expectFormat("|x| { let v = process(x)\nreturn v |> map(f) |> filter(g) |> sum }", "|x| {\n  let v = process(x)\n\n  return v\n    |> map(f)\n    |> filter(g)\n    |> sum\n}\n");
 }
 
 test "format: single line return no blank line" {
@@ -841,11 +856,15 @@ test "format: single line return no blank line" {
 }
 
 test "format: comment before implicit return" {
-    try expectFormat("|x| { let a = 1\n// comment\na + 1 }", "|x| {\n  let a = 1\n  // comment\n  a + 1\n}\n");
+    // Semicolon added to last non-comment statement before implicit return
+    // Blank line before implicit return expression
+    try expectFormat("|x| { let a = 1\n// comment\na + 1 }", "|x| {\n  let a = 1;\n  // comment\n\n  a + 1\n}\n");
 }
 
 test "format: multiple comments before implicit return" {
-    try expectFormat("|x| { let a = 1\n// comment 1\n// comment 2\na }", "|x| {\n  let a = 1\n  // comment 1\n  // comment 2\n  a\n}\n");
+    // Semicolon added to last non-comment statement before implicit return
+    // Blank line before implicit return expression
+    try expectFormat("|x| { let a = 1\n// comment 1\n// comment 2\na }", "|x| {\n  let a = 1;\n  // comment 1\n  // comment 2\n\n  a\n}\n");
 }
 
 // === ERROR HANDLING TESTS ===

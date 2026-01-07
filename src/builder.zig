@@ -59,55 +59,66 @@ pub fn buildProgram(builder: *DocBuilder, program: *const Program) BuildError!*c
     return builder.concat(try parts.toOwnedSlice(parts_alloc));
 }
 
-fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildError!*const Doc {
+/// Build statements with optional force-breaking of implicit return pipes
+/// is_section_body: true for section bodies (part_one, part_two, test), false for lambda bodies
+fn buildStatements(builder: *DocBuilder, statements: []const Statement, is_section_body: bool) BuildError!*const Doc {
     if (statements.len == 0) {
         return builder.nil();
     }
 
-    const len = statements.len;
     var parts: std.ArrayList(*const Doc) = .empty;
     const parts_alloc = builder.arena.allocator();
+    const len = statements.len;
 
-    // Calculate which statement needs a semicolon before an implicit return
-    // Matches Rust: add semicolon to last non-comment statement before implicit return
+    // Determine semicolon_index: the last non-comment statement before an implicit return
     const semicolon_index: ?usize = blk: {
         if (len < 2) break :blk null;
-
-        // Check if last statement is an implicit return (expression that's not let/let mut)
         const last_stmt = &statements[len - 1];
-        const has_implicit_return = last_stmt.kind == .expression and
-            last_stmt.kind.expression.kind != .let and
-            last_stmt.kind.expression.kind != .mutable_let;
-
+        // Check if last statement is an implicit return (expression that isn't let)
+        const has_implicit_return = switch (last_stmt.kind) {
+            .expression => |expr| switch (expr.kind) {
+                .let, .mutable_let => false,
+                else => true,
+            },
+            else => false,
+        };
         if (!has_implicit_return) break :blk null;
-
-        // Find last non-comment statement before the implicit return
+        // Find the last non-comment statement before the implicit return
         var idx: usize = len - 1;
         while (idx > 0) {
             idx -= 1;
-            if (statements[idx].kind != .comment) {
-                break :blk idx;
-            }
+            if (statements[idx].kind != .comment) break :blk idx;
         }
+        if (statements[0].kind != .comment) break :blk 0;
         break :blk null;
     };
 
     for (statements, 0..) |*stmt, i| {
-        if (i > 0) {
-            // Preserve user blank lines from source, or add for implicit returns
-            const needs_blank = stmt.preceded_by_blank_line or blk: {
-                // Add blank line before implicit return expression
-                if (stmt.kind == .expression and i == len - 1 and len > 1) {
-                    const expr = stmt.kind.expression;
-                    break :blk expr.kind != .let and expr.kind != .mutable_let;
-                }
-                // Add blank line before multiline return expressions
-                if (stmt.kind == .@"return" and len > 1) {
-                    break :blk isMultilineExpression(stmt.kind.@"return");
-                }
-                break :blk false;
-            };
+        // Determine if we need a blank line before this statement
+        const needs_blank = stmt.preceded_by_blank_line or blk: {
+            switch (stmt.kind) {
+                .expression => |expr| {
+                    // Implicit return expression at end of multi-statement block
+                    if (i == len - 1 and len > 1) {
+                        break :blk switch (expr.kind) {
+                            .let, .mutable_let => false,
+                            else => true,
+                        };
+                    }
+                    break :blk false;
+                },
+                .@"return" => |expr| {
+                    // Return with multiline expression
+                    if (len > 1) {
+                        break :blk isMultilineExpression(expr);
+                    }
+                    break :blk false;
+                },
+                else => break :blk false,
+            }
+        };
 
+        if (i > 0) {
             if (needs_blank) {
                 try parts.append(parts_alloc, try builder.blankLine());
                 try parts.append(parts_alloc, try builder.hardLine());
@@ -117,15 +128,19 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
         }
 
         // Check if this is the last statement and is an implicit return (expression statement)
-        const is_implicit_return = i == statements.len - 1 and stmt.kind == .expression;
+        const is_implicit_return = i == len - 1 and stmt.kind == .expression;
         if (is_implicit_return) {
-            // For implicit returns, force break pipe chains
-            try parts.append(parts_alloc, try buildImplicitReturnExpr(builder, stmt.kind.expression));
+            // Only force-break pipes in section bodies, not in lambda bodies
+            if (is_section_body) {
+                try parts.append(parts_alloc, try buildSectionImplicitReturn(builder, stmt.kind.expression));
+            } else {
+                try parts.append(parts_alloc, try buildExpression(builder, stmt.kind.expression));
+            }
         } else {
             try parts.append(parts_alloc, try buildStatement(builder, stmt, false));
         }
 
-        // Add semicolon before implicit return
+        // Add semicolon at semicolon_index
         if (semicolon_index == i) {
             try parts.append(parts_alloc, try builder.text(";"));
         }
@@ -142,24 +157,23 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
     return builder.concat(try parts.toOwnedSlice(parts_alloc));
 }
 
-/// Build an expression that's in implicit return position (last expression in block).
-/// This forces multi-pipe chains to break onto separate lines for readability.
-/// Note: Only PIPE chains (|>) are force-broken. Compositions (>>) use normal soft-line formatting.
-fn buildImplicitReturnExpr(builder: *DocBuilder, expr: *const Expression) BuildError!*const Doc {
-    // Check if this is a pipe chain that should be force-broken
-    // Note: Rust only force-breaks pipes, not compositions
+/// Build an expression that's in implicit return position of a SECTION (part_one, part_two, test).
+/// Pipe chains are force-broken for readability in section implicit returns.
+fn buildSectionImplicitReturn(builder: *DocBuilder, expr: *const Expression) BuildError!*const Doc {
+    // Force break pipe chains in section implicit return position
+    // Reference files show: section pipes are broken, lambda body pipes stay inline
     if (expr.kind == .function_thread) {
         const thread = expr.kind.function_thread;
         if (thread.functions.len > 1) {
-            // Multi-pipe chain in implicit return: force break
             return buildChainForceBreak(builder, thread.initial, thread.functions, "|>");
         }
     }
-
-    // Compositions (>>) use normal formatting - they're grouped with soft lines
-    // and the printer decides whether to break based on line width
-
-    // Default: build normally
+    if (expr.kind == .function_composition) {
+        const functions = expr.kind.function_composition;
+        if (functions.len > 2) {
+            return buildChainForceBreak(builder, functions[0], functions[1..], ">>");
+        }
+    }
     return buildExpression(builder, expr);
 }
 
@@ -189,7 +203,7 @@ fn buildStatement(builder: *DocBuilder, stmt: *const Statement, is_top_level: bo
             p[0] = try builder.text("{");
             const inner_parts = try builder.arena.allocator().alloc(*const Doc, 2);
             inner_parts[0] = try builder.hardLine();
-            inner_parts[1] = try buildStatements(builder, stmts);
+            inner_parts[1] = try buildStatements(builder, stmts, false); // Not a section body
             p[1] = try builder.nest(INDENT_SIZE, try builder.concat(inner_parts));
             p[2] = try builder.hardLine();
             p[3] = try builder.text("}");
@@ -232,7 +246,7 @@ fn buildSection(builder: *DocBuilder, section: *const ast.Section, is_top_level:
     try parts.append(parts_alloc, try builder.text("{"));
     const inner_parts = try builder.arena.allocator().alloc(*const Doc, 2);
     inner_parts[0] = try builder.hardLine();
-    inner_parts[1] = try buildStatements(builder, section.body.statements);
+    inner_parts[1] = try buildStatements(builder, section.body.statements, true); // Section body: force-break pipes
     try parts.append(parts_alloc, try builder.nest(INDENT_SIZE, try builder.concat(inner_parts)));
     try parts.append(parts_alloc, try builder.hardLine());
     try parts.append(parts_alloc, try builder.text("}"));
@@ -669,8 +683,7 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
         }
     }
 
-    // Force break when there are multiple functions in the chain
-    // Matches Rust: multi-pipe chains always break onto separate lines
+    // Force break when more than 1 function in the chain (2+ pipes)
     const force_break = functions.len > 1;
 
     var chain: std.ArrayList(*const Doc) = .empty;
@@ -685,7 +698,6 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
             try buildExpression(builder, f);
 
         const op_parts = try builder.arena.allocator().alloc(*const Doc, 3);
-        // Use HardLine when force_break, otherwise soft line
         op_parts[0] = if (force_break) try builder.hardLine() else try builder.line();
         op_parts[1] = try builder.text(op);
         op_parts[2] = try builder.text(" ");
@@ -703,12 +715,8 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
     p[0] = try buildExpression(builder, initial);
     p[1] = nested;
 
-    // Don't wrap in group when force_break - always break
-    if (force_break) {
-        return builder.concat(p);
-    } else {
-        return builder.group(try builder.concat(p));
-    }
+    const chain_result = try builder.concat(p);
+    return if (force_break) chain_result else builder.group(chain_result);
 }
 
 /// Build a pipe/compose chain with forced line breaks (used for implicit returns).
@@ -933,8 +941,10 @@ fn buildInlineBody(builder: *DocBuilder, stmt: *const Statement) BuildError!*con
         .expression => |expr| buildExpression(builder, expr),
         .block => |stmts| {
             if (stmts.len == 1) {
-                if (stmts[0].kind == .expression) {
-                    return buildExpression(builder, stmts[0].kind.expression);
+                const first = &stmts[0];
+                // Only unwrap single-expression blocks
+                if (first.kind == .expression) {
+                    return buildExpression(builder, first.kind.expression);
                 }
             }
             return buildBlockStatement(builder, stmt);
@@ -1081,7 +1091,7 @@ fn buildBlockBody(builder: *DocBuilder, stmts: []const Statement) BuildError!*co
 
     const inner_parts = try builder.arena.allocator().alloc(*const Doc, 2);
     inner_parts[0] = try builder.hardLine();
-    inner_parts[1] = try buildStatements(builder, stmts);
+    inner_parts[1] = try buildStatements(builder, stmts, false); // Lambda body: don't force-break pipes
 
     const p = try builder.arena.allocator().alloc(*const Doc, 4);
     p[0] = try builder.text("{");
@@ -1120,12 +1130,12 @@ fn buildString(builder: *DocBuilder, value: []const u8) BuildError!*const Doc {
 }
 
 fn escapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
-    // Count newlines to determine if this is multiline content
-    // Matches Rust: preserve literal newlines only if >3 newlines OR >50 chars
+    // Count newlines to determine escaping strategy
     var newline_count: usize = 0;
     for (s) |c| {
         if (c == '\n') newline_count += 1;
     }
+    // Preserve literal newlines for multiline content (>3 newlines or >50 chars)
     const is_multiline_content = newline_count > 3 or s.len > 50;
 
     var result: std.ArrayList(u8) = .empty;
@@ -1135,9 +1145,9 @@ fn escapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
             '"' => try result.appendSlice(allocator, "\\\""),
             '\n' => {
                 if (is_multiline_content) {
-                    try result.append(allocator, c); // Preserve literal for long strings
+                    try result.append(allocator, c); // Preserve literal newline
                 } else {
-                    try result.appendSlice(allocator, "\\n"); // Escape for short strings
+                    try result.appendSlice(allocator, "\\n"); // Escape to \n
                 }
             },
             '\t' => try result.appendSlice(allocator, "\\t"),
@@ -1181,6 +1191,7 @@ fn isSimpleBody(stmt: *const Statement) bool {
         .expression => |expr| !containsBlockLambda(expr),
         .block => |stmts| {
             if (stmts.len == 1) {
+                // Only single-expression blocks are simple
                 if (stmts[0].kind == .expression) {
                     return !containsBlockLambda(stmts[0].kind.expression);
                 }

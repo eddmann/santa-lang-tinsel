@@ -24,6 +24,7 @@ pub const Statement = struct {
     source: Location,
     preceded_by_blank_line: bool,
     trailing_comment: ?[]const u8,
+    has_trailing_semicolon: bool,
 
     pub fn deinit(self: *Statement, allocator: std.mem.Allocator) void {
         self.kind.deinit(allocator);
