@@ -44,6 +44,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/sa
 | Linux (ARM64)         | `santa-fmt-{version}-linux-arm64` |
 | macOS (Intel)         | `santa-fmt-{version}-macos-amd64` |
 | macOS (Apple Silicon) | `santa-fmt-{version}-macos-arm64` |
+| WebAssembly (WASI)    | `santa-fmt-{version}.wasm`        |
 
 ## Usage
 

@@ -40,6 +40,18 @@ make release            # Build optimized release binary
 make run ARGS="file.santa"  # Run formatter on file
 ```
 
+### Cross-compilation
+
+```bash
+make build/linux-amd64  # Linux x86_64 (static, musl)
+make build/linux-arm64  # Linux ARM64 (static, musl)
+make build/macos-amd64  # macOS Intel
+make build/macos-arm64  # macOS Apple Silicon
+make build/wasm         # WebAssembly (WASI)
+```
+
+Pass `VERSION=x.y.z` to embed version string (used by CI).
+
 ## Code Conventions
 
 - **Language**: Zig 0.15.x
@@ -67,7 +79,8 @@ make run ARGS="file.santa"  # Run formatter on file
 ## Tests & CI
 
 - **CI** (`test.yml`): Runs `make can-release` on ubuntu-24.04
-- **Build** (`build-cli.yml`): Multi-platform builds (linux/macos, amd64/arm64)
+- **Build** (`build-cli.yml`): Multi-platform CLI builds (linux/macos, amd64/arm64)
+- **Build** (`build-wasm.yml`): WebAssembly build (wasm32-wasi)
 - Auto-updates `draft-release` branch after tests pass on main
 - 340 tests covering lexer, parser, doc, printer, and formatting
 
@@ -86,3 +99,4 @@ make run ARGS="file.santa"  # Run formatter on file
 - **Indent size**: Hardcoded to 2 spaces (builder.zig INDENT_SIZE)
 - **No config file**: Formatter is fully opinionated, no customization
 - **Idempotency**: Formatting is guaranteed idempotent (tested)
+- **WASM target**: Uses wasm32-wasi, requires WASI runtime (wasmtime, node --experimental-wasi, etc.)

@@ -34,3 +34,13 @@ jobs:
     with:
       release-tag: ${{ needs.update-draft-release.outputs.tag_name }}
     secrets: inherit
+
+  wasm:
+    name: Build WebAssembly
+    needs: update-draft-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-wasm.yml
+    with:
+      release-tag: ${{ needs.update-draft-release.outputs.tag_name }}
+    secrets: inherit

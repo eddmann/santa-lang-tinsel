@@ -37,18 +37,24 @@ test: ## Run all tests
 
 ##@ Cross-compilation
 
+VERSION ?= dev
+
 .PHONY: build/linux-amd64
 build/linux-amd64: ## Build for Linux x86_64 (static)
-	@zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast
+	@zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast -Dversion=$(VERSION)
 
 .PHONY: build/linux-arm64
 build/linux-arm64: ## Build for Linux ARM64 (static)
-	@zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast
+	@zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast -Dversion=$(VERSION)
 
 .PHONY: build/macos-amd64
 build/macos-amd64: ## Build for macOS x86_64
-	@zig build -Dtarget=x86_64-macos -Doptimize=ReleaseFast
+	@zig build -Dtarget=x86_64-macos -Doptimize=ReleaseFast -Dversion=$(VERSION)
 
 .PHONY: build/macos-arm64
 build/macos-arm64: ## Build for macOS ARM64
-	@zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast
+	@zig build -Dtarget=aarch64-macos -Doptimize=ReleaseFast -Dversion=$(VERSION)
+
+.PHONY: build/wasm
+build/wasm: ## Build WebAssembly module (WASI)
+	@zig build -Dtarget=wasm32-wasi -Doptimize=ReleaseFast -Dversion=$(VERSION)

@@ -36,7 +36,7 @@ jobs:
         with:
           version: 0.15.0
       - name: Build
-        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseFast -Dversion=${{ inputs.release-tag }}
+        run: make build/${{ matrix.platform }} VERSION=${{ inputs.release-tag }}
       - name: Upload
         run: |
           cp zig-out/bin/santa-fmt santa-fmt-${{ inputs.release-tag }}-${{ matrix.platform }}
