@@ -723,6 +723,35 @@ test "format: string short escaped newline stays escaped" {
     try expectFormat("\"hello\\nworld\"", "\"hello\\nworld\"\n");
 }
 
+test "format: string three newlines short escapes" {
+    // 3 newlines is NOT > 3, so escapes (protects patterns like "#\n#\n#\n#")
+    try expectFormat("\"a\nb\nc\nd\"", "\"a\\nb\\nc\\nd\"\n");
+}
+
+test "format: string four newlines preserves literal" {
+    // 4 newlines IS > 3, so preserves literal newlines even for short strings
+    const result = try lib.format(testing.allocator, "\"a\nb\nc\nd\ne\"");
+    defer testing.allocator.free(result);
+    // Should have multiple newlines (preserved literal)
+    var newline_count: usize = 0;
+    for (result) |c| {
+        if (c == '\n') newline_count += 1;
+    }
+    try testing.expect(newline_count > 1);
+}
+
+test "format: string long few newlines preserves literal" {
+    // >50 chars triggers literal newlines regardless of newline count
+    const long_string = "\"" ++ "x" ** 30 ++ "\n" ++ "y" ** 25 ++ "\"";
+    const result = try lib.format(testing.allocator, long_string);
+    defer testing.allocator.free(result);
+    var newline_count: usize = 0;
+    for (result) |c| {
+        if (c == '\n') newline_count += 1;
+    }
+    try testing.expect(newline_count > 1);
+}
+
 // === LINE WIDTH / WRAPPING TESTS ===
 
 test "format: list exceeding line width wraps" {

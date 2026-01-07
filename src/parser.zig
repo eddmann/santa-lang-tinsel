@@ -660,6 +660,7 @@ pub const Parser = struct {
 
         // Parse regular arguments
         const parsed_args = try self.parseExpressionList(.rparen);
+        defer self.allocator.free(parsed_args);
         for (parsed_args) |arg| {
             try args_list.append(self.allocator, arg);
         }
