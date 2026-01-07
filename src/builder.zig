@@ -64,53 +64,13 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
         return builder.nil();
     }
 
-    const len = statements.len;
     var parts: std.ArrayList(*const Doc) = .empty;
     const parts_alloc = builder.arena.allocator();
 
-    // Find index of last non-comment statement before implicit return
-    var semicolon_index: ?usize = null;
-    if (len >= 2) {
-        const last = &statements[len - 1];
-        const has_implicit_return = switch (last.kind) {
-            .expression => |expr| switch (expr.kind) {
-                .let, .mutable_let => false,
-                else => true,
-            },
-            else => false,
-        };
-
-        if (has_implicit_return) {
-            // Find last non-comment statement before the return
-            var idx: usize = len - 2;
-            while (true) : (idx -|= 1) {
-                if (statements[idx].kind != .comment) {
-                    semicolon_index = idx;
-                    break;
-                }
-                if (idx == 0) break;
-            }
-        }
-    }
-
     for (statements, 0..) |*stmt, i| {
         if (i > 0) {
-            // Preserve user blank lines from source, or add for implicit returns
-            const needs_blank = stmt.preceded_by_blank_line or blk: {
-                if (i == len - 1 and len > 1) {
-                    break :blk switch (stmt.kind) {
-                        .expression => |expr| switch (expr.kind) {
-                            .let, .mutable_let => false,
-                            else => true,
-                        },
-                        .@"return" => |expr| isMultilineExpression(expr),
-                        else => false,
-                    };
-                }
-                break :blk false;
-            };
-
-            if (needs_blank) {
+            // Preserve user blank lines from source only
+            if (stmt.preceded_by_blank_line) {
                 try parts.append(parts_alloc, try builder.blankLine());
                 try parts.append(parts_alloc, try builder.hardLine());
             } else {
@@ -119,10 +79,6 @@ fn buildStatements(builder: *DocBuilder, statements: []const Statement) BuildErr
         }
 
         try parts.append(parts_alloc, try buildStatement(builder, stmt, false));
-
-        if (semicolon_index == i) {
-            try parts.append(parts_alloc, try builder.text(";"));
-        }
 
         // Emit trailing comment if present
         if (stmt.trailing_comment) |comment| {
@@ -641,8 +597,8 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
         }
     }
 
-    const force_break = functions.len > 1;
-
+    // Line-width based formatting: let the printer decide when to break
+    // based on the 100-character line width limit (like composition)
     var chain: std.ArrayList(*const Doc) = .empty;
     const chain_alloc = builder.arena.allocator();
     for (functions, 0..) |f, i| {
@@ -654,10 +610,8 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
         else
             try buildExpression(builder, f);
 
-        const line_doc = if (force_break) try builder.hardLine() else try builder.line();
-
         const op_parts = try builder.arena.allocator().alloc(*const Doc, 3);
-        op_parts[0] = line_doc;
+        op_parts[0] = try builder.line();
         op_parts[1] = try builder.text(op);
         op_parts[2] = try builder.text(" ");
 
@@ -673,12 +627,7 @@ fn buildChain(builder: *DocBuilder, initial: *const Expression, functions: []*Ex
     const p = try builder.arena.allocator().alloc(*const Doc, 2);
     p[0] = try buildExpression(builder, initial);
     p[1] = nested;
-    const result_doc = try builder.concat(p);
-
-    if (force_break) {
-        return result_doc;
-    }
-    return builder.group(result_doc);
+    return builder.group(try builder.concat(p));
 }
 
 fn buildCallForChain(builder: *DocBuilder, expr: *const Expression) !?*const Doc {
@@ -1000,28 +949,16 @@ fn buildString(builder: *DocBuilder, value: []const u8) BuildError!*const Doc {
 }
 
 fn escapeString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
-    var newline_count: usize = 0;
-    for (s) |c| {
-        if (c == '\n') newline_count += 1;
-    }
-    const is_multiline_content = newline_count > 3 or s.len > 50;
-
     var result: std.ArrayList(u8) = .empty;
     for (s) |c| {
         switch (c) {
             '\\' => try result.appendSlice(allocator, "\\\\"),
             '"' => try result.appendSlice(allocator, "\\\""),
-            '\n' => {
-                if (is_multiline_content) {
-                    try result.append(allocator, '\n');
-                } else {
-                    try result.appendSlice(allocator, "\\n");
-                }
-            },
             '\t' => try result.appendSlice(allocator, "\\t"),
             '\r' => try result.appendSlice(allocator, "\\r"),
             0x08 => try result.appendSlice(allocator, "\\b"), // Backspace
             0x0C => try result.appendSlice(allocator, "\\f"), // Form feed
+            // Always preserve literal newlines
             else => try result.append(allocator, c),
         }
     }
