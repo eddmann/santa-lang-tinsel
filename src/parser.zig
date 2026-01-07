@@ -1168,6 +1168,35 @@ pub const Parser = struct {
             .integer => blk: {
                 const value = try self.allocator.dupe(u8, self.lexer.getSource(self.current_token));
                 self.nextToken();
+
+                // Check for range pattern: 8..12 or 8..=12
+                if (self.currentIs(.dot_dot) or self.currentIs(.dot_dot_equal)) {
+                    const is_inclusive = self.currentIs(.dot_dot_equal);
+                    self.nextToken(); // consume .. or ..=
+
+                    // Create the 'from' expression
+                    const from_expr = try self.allocator.create(Expression);
+                    from_expr.* = .{
+                        .kind = .{ .integer = value },
+                        .source = .{ .start = start, .end = self.current_token.start },
+                    };
+
+                    // Parse the 'to' expression
+                    const to_expr = try self.parseMatchPattern();
+
+                    if (is_inclusive) {
+                        break :blk .{
+                            .kind = .{ .inclusive_range = .{ .from = from_expr, .to = to_expr } },
+                            .source = .{ .start = start, .end = to_expr.source.end },
+                        };
+                    } else {
+                        break :blk .{
+                            .kind = .{ .exclusive_range = .{ .from = from_expr, .until = to_expr } },
+                            .source = .{ .start = start, .end = to_expr.source.end },
+                        };
+                    }
+                }
+
                 break :blk .{
                     .kind = .{ .integer = value },
                     .source = .{ .start = start, .end = self.current_token.start },
