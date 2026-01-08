@@ -10,6 +10,7 @@ const usage =
     \\  -l    list files whose formatting differs from santa-tinsel's
     \\  -w    write result to (source) file instead of stdout
     \\  -h    display this help and exit
+    \\  -v    display version and exit
     \\
     \\Without flags, santa-tinsel prints reformatted sources to stdout.
     \\Without path, santa-tinsel reads from stdin.
@@ -45,6 +46,9 @@ pub fn main() !void {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "-h")) {
             try stdout_file.writeAll(usage);
+            return;
+        } else if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) {
+            try stdout_file.writeAll("santa-lang Tinsel " ++ build_options.version ++ "\n");
             return;
         } else if (std.mem.eql(u8, arg, "-d")) {
             mode = .show_diff;
