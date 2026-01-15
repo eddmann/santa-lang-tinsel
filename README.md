@@ -38,8 +38,8 @@ Source Code → Lexer → Parser → Builder → Printer → Formatted Code
 
 Download pre-built binaries from [GitHub Releases](https://github.com/eddmann/santa-lang-tinsel/releases):
 
-| Platform              | Artifact                          |
-| --------------------- | --------------------------------- |
+| Platform              | Artifact                             |
+| --------------------- | ------------------------------------ |
 | Linux (x86_64)        | `santa-tinsel-{version}-linux-amd64` |
 | Linux (ARM64)         | `santa-tinsel-{version}-linux-arm64` |
 | macOS (Intel)         | `santa-tinsel-{version}-macos-amd64` |
@@ -194,6 +194,12 @@ The language has been implemented multiple times to explore different execution 
 | [Donner](https://github.com/eddmann/santa-lang-donner)   | JVM bytecode compiler    | Kotlin     |
 | [Vixen](https://github.com/eddmann/santa-lang-vixen)     | Embedded bytecode VM     | C          |
 | [Prancer](https://github.com/eddmann/santa-lang-prancer) | Tree-walking interpreter | TypeScript |
+
+## Tooling
+
+| Name                                                         | Description |
+| ------------------------------------------------------------ | ----------- |
+| [Workbench](https://github.com/eddmann/santa-lang-workbench) | Desktop IDE |
 
 ## License
 
